@@ -44,7 +44,7 @@ class FaceRecognition:
             if os.path.exists('../face_dataframe/table.parquet'):
                 self.datatable = pd.read_parquet('../face_dataframe/table.parquet')
                 if tomemory:
-                    print('Загрузка изображений лиц в ОЗУ')
+                    print('Загрузка дескрипторов лиц в ОЗУ')
                     for i in tqdm.tqdm(range(len(self.datatable))):
                         image = Image.open('../face_dataset/' + self.datatable['path'][i])
                         #Если изображение черно-белое, то преобразуем в цветное
@@ -105,6 +105,43 @@ class FaceRecognition:
     def face_compare_w_desc(self,img1, descriptor):
         return self.dist_bool(self.face_descriptor(img1), descriptor)
 
+    #Функция поиска имени актера по фото
+    def find_name(self, img):
+        for index,actor in tqdm.tqdm(self.datatable.iterrows()):
+            #print(index)
+            if len(self.data) == 0:
+                img2_desc = self.data[index]
+            else:
+                path = actor['path']
+                img2 = Image.open('../face_dataset/' + path)
+                img2 = img2.convert('RGB')
+                img2 = np.array(img2)[:, :, :3]
+                img2_desc = self.face_descriptor(img2)
+            if self.face_compare_w_desc(img, img2_desc):
+                return actor['name']
+        return 'Unknown'
+
+    #Функция сравнения изображения с дескриптором
+    def face_compare_w_desc(self,desc1, desc2):
+        return self.dist_bool(desc1, desc2)
+
+    #Функция поиска имени актера по фото
+    def find_name(self, img):
+        img1_desc = facerec.face_descriptor(img1)
+        for index,actor in tqdm.tqdm(self.datatable.iterrows()):
+            #print(index)
+            if len(self.data) != 0:
+                img2_desc = self.data[index]
+            else:
+                path = actor['path']
+                img2 = Image.open('../face_dataset/' + path)
+                img2 = img2.convert('RGB')
+                img2 = np.array(img2)[:, :, :3]
+                img2_desc = self.face_descriptor(img2)
+            if self.face_compare_w_desc(img1_desc, img2_desc):
+                return actor['name']
+        return 'Unknown'
+
 def plot_img(img1, img2):
     height_max = max(img1.shape[1], img2.shape[1])
     width_max = max(img1.shape[0], img2.shape[0])
@@ -123,8 +160,10 @@ if __name__ == '__main__':
     facerec = FaceRecognition()
     facerec.load_dataset(tomemory = True)
     img1 = io.imread('https://biography-life.ru/uploads/posts/2018-09/1536266366_tom-kruz2.jpg')
+    img1_desc = facerec.face_descriptor(img1)
     img2_id = facerec.datatable[facerec.datatable['name']=='Tom Cruise'].iloc[0].name
     print(img2_id)
     img2_desc = facerec.data[img2_id]
-    print(facerec.face_compare_w_desc(img1,img2_desc))
-    #plot_img(img1,img2)
+    print(facerec.face_compare_w_desc(img1_desc,img2_desc))
+
+    print(facerec.find_name(img1))
