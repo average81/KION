@@ -23,10 +23,9 @@ class FaceRecognition:
             self.predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
         self.facerec = dlib.face_recognition_model_v1('dlib_face_recognition_resnet_model_v1.dat')
         self.recognition_value = recognition_value
-        #Составление таблицы имен и ссылок на файлы
-        if not os.path.exists('../face_dataset'):
-            df = pd.read_csv('data/imdb_crop.csv')
-            df['image'] = df['image'].apply(lambda x: 'data/' + x)
+        self.names = []
+        self.data = pd.DataFrame(columns = ['desc'])
+        self.datatable = pd.DataFrame(columns=['name', 'path'])
 
     #Функция для определения лица на изображении
     def detect_face(self, image):
@@ -44,9 +43,9 @@ class FaceRecognition:
         print('Подготовка данных')
 
         if os.path.exists('../face_dataset'):
-            self.data = pd.DataFrame(columns = ['desc'])
             if os.path.exists('../face_dataframe/table.parquet'):
                 self.datatable = pd.read_parquet('../face_dataframe/table.parquet')
+                self.names = self.datatable['name'].unique()
                 if tomemory:
                     print('Загрузка дескрипторов лиц в ОЗУ')
                     if os.path.exists('../face_dataframe/table_desc.pcl'):
@@ -62,7 +61,6 @@ class FaceRecognition:
                         self.data.to_pickle('../face_dataframe/table_desc.pcl')
             else:
                 print('Создание таблицы для работы с данными')
-                self.datatable = pd.DataFrame(columns=['name', 'path'])
                 for path_dir in sorted(os.listdir(path='../face_dataset')):
                     path = '../face_dataset/' + path_dir + '/'
                     for path_image in tqdm.tqdm(sorted(os.listdir(path=path))):
@@ -74,6 +72,7 @@ class FaceRecognition:
                             self.data.loc[len(self.datatable)] = [descriptor]
                         new_row = {'name': path_dir, 'path': path + path_image}
                         self.datatable.loc[len(self.datatable)] = new_row
+                self.names = self.datatable['name'].unique()
                 #Сохраняем таблицу в формате parquet
                 self.datatable.to_parquet('../face_dataframe/table.parquet')
                 self.data.to_pickle('../face_dataframe/table_desc.pcl')
@@ -115,20 +114,23 @@ class FaceRecognition:
 
     #Функция сравнения 2 дескрипторов
     def dist_bool(self,face_descriptor1, face_descriptor2):
-        if face_descriptor1 != None and face_descriptor2 != None:
-            a = distance.euclidean(face_descriptor1, face_descriptor2)
-            #print(a)
-            if a < self.recognition_value:
-                #print(a)
-                return True,a
+        distance = self.dist_euqlid(face_descriptor1, face_descriptor2)
+        if distance < self.recognition_value:
+            return True,distance
         return False,0
+
+    #Функция сравнения 2 дескрипторов, возвращает расстояние между дескрипторами
+    def dist_euqlid(self,face_descriptor1, face_descriptor2):
+        if face_descriptor1 != None and face_descriptor2 != None:
+            return distance.euclidean(face_descriptor1, face_descriptor2)
+        return None
 
     #Функция сравнения 2 изображений
     def face_compare(self, img1, img2):
         return self.dist_bool(self.face_descriptor(img1), self.face_descriptor(img2))
 
     #Функция сравнения изображения с дескриптором
-    def face_compare_w_desc(self,img1, descriptor):
+    def face_compare_img_w_desc(self,img1, descriptor):
         return self.dist_bool(self.face_descriptor(img1), descriptor)
 
     #Функция сравнения изображения с дескриптором
@@ -139,7 +141,28 @@ class FaceRecognition:
     def find_name(self, img):
         starttm = time.time()
         img1_desc = facerec.face_descriptor(img)
-        for index,actor in self.datatable.iterrows():
+        #Предварительный поиск
+        candidates = []
+        for name in self.names:
+            index = self.datatable[self.datatable['name']== name].iloc[0].name
+            if len(self.data) != 0:
+                img2_desc = self.data['desc'][index]
+            else:
+                path = self.datatable['path'][index]
+                img2 = Image.open('../face_dataset/' + path)
+                img2 = img2.convert('RGB')
+                img2 = np.array(img2)[:, :, :3]
+                img2_desc = self.face_descriptor(img2)
+            score = self.dist_euqlid(img1_desc, img2_desc)
+            print(f'"{name}",distance: {score}')
+            if score < 0.7:
+                candidates = candidates +[name]
+                if score < self.recognition_value:
+                    endtm = time.time()
+                    print(f'time: {endtm-starttm},distance: {score}')
+                    return name
+        print(f'Кандидаты на тщательный поиск: {candidates}')
+        for index,actor in self.datatable[self.datatable['name'].isin(candidates)].iterrows():
             #print(index)
             if len(self.data) != 0:
                 img2_desc = self.data['desc'][index]
@@ -152,7 +175,7 @@ class FaceRecognition:
             result,score = self.face_compare_w_desc(img1_desc, img2_desc)
             if result:
                 endtm = time.time()
-                print(endtm-starttm,score,index)
+                print(f'time: {endtm-starttm},distance: {score}')
                 return actor['name']
         return 'Unknown'
 
