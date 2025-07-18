@@ -9,6 +9,9 @@ import numpy as np
 import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.figure import figaspect
+import time
+import threading
+from queue import Queue
 
 
 #Класс работы с изображениями
@@ -39,19 +42,24 @@ class FaceRecognition:
     #Функция загрузки датасета
     def load_dataset(self, tomemory = False):
         print('Подготовка данных')
+
         if os.path.exists('../face_dataset'):
-            self.data = []
+            self.data = pd.DataFrame(columns = ['desc'])
             if os.path.exists('../face_dataframe/table.parquet'):
                 self.datatable = pd.read_parquet('../face_dataframe/table.parquet')
                 if tomemory:
                     print('Загрузка дескрипторов лиц в ОЗУ')
-                    for i in tqdm.tqdm(range(len(self.datatable))):
-                        image = Image.open('../face_dataset/' + self.datatable['path'][i])
-                        #Если изображение черно-белое, то преобразуем в цветное
-                        image = image.convert('RGB')
-                        image = np.array(image)[:, :, :3]
-                        descriptor = self.face_descriptor(image)
-                        self.data.append(descriptor)
+                    if os.path.exists('../face_dataframe/table_desc.pcl'):
+                        self.data = pd.read_pickle('../face_dataframe/table_desc.pcl')
+                    else:
+                        for i in tqdm.tqdm(range(len(self.datatable))):
+                            image = Image.open('../face_dataset/' + self.datatable['path'][i])
+                            #Если изображение черно-белое, то преобразуем в цветное
+                            image = image.convert('RGB')
+                            image = np.array(image)[:, :, :3]
+                            descriptor = self.face_descriptor(image)
+                            self.data.loc[i] = [descriptor]
+                        self.data.to_pickle('../face_dataframe/table_desc.pcl')
             else:
                 print('Создание таблицы для работы с данными')
                 self.datatable = pd.DataFrame(columns=['name', 'path'])
@@ -63,11 +71,12 @@ class FaceRecognition:
                             image = image.convert('RGB')
                             image = np.array(image)[:, :, :3]
                             descriptor = self.face_descriptor(image)
-                            self.data.append(descriptor)
+                            self.data.loc[len(self.datatable)] = [descriptor]
                         new_row = {'name': path_dir, 'path': path + path_image}
                         self.datatable.loc[len(self.datatable)] = new_row
                 #Сохраняем таблицу в формате parquet
                 self.datatable.to_parquet('../face_dataframe/table.parquet')
+                self.data.to_pickle('../face_dataframe/table_desc.pcl')
                 print('Создана новая таблица')
 
     #Функция получения рамки лица
@@ -80,6 +89,23 @@ class FaceRecognition:
             shape = self.predictor(img, d)
         return shape
 
+    #Функция получения рамки лица для многопоточного варианта
+    def shape_of_image_thread(self,image_queue, result_queue):
+        while True:
+            # Получаем задание из очереди
+            image = image_queue.get()
+
+            if image is None:
+                break
+
+            dets = self.detector(image, 1)
+            for k, d in enumerate(dets):
+                #print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
+                #    k, d.left(), d.top(), d.right(), d.bottom()))
+                shape = self.predictor(image, d)
+                result_queue.put((image.copy(), shape))
+        image_queue.task_done()
+
     #Функция получения дескриптора лица
     def face_descriptor(self,img):
         shape = self.shape_of_image(img)
@@ -91,11 +117,11 @@ class FaceRecognition:
     def dist_bool(self,face_descriptor1, face_descriptor2):
         if face_descriptor1 != None and face_descriptor2 != None:
             a = distance.euclidean(face_descriptor1, face_descriptor2)
-            print(a)
+            #print(a)
             if a < self.recognition_value:
-                print(a)
-                return True
-        return False
+                #print(a)
+                return True,a
+        return False,0
 
     #Функция сравнения 2 изображений
     def face_compare(self, img1, img2):
@@ -105,40 +131,28 @@ class FaceRecognition:
     def face_compare_w_desc(self,img1, descriptor):
         return self.dist_bool(self.face_descriptor(img1), descriptor)
 
-    #Функция поиска имени актера по фото
-    def find_name(self, img):
-        for index,actor in tqdm.tqdm(self.datatable.iterrows()):
-            #print(index)
-            if len(self.data) == 0:
-                img2_desc = self.data[index]
-            else:
-                path = actor['path']
-                img2 = Image.open('../face_dataset/' + path)
-                img2 = img2.convert('RGB')
-                img2 = np.array(img2)[:, :, :3]
-                img2_desc = self.face_descriptor(img2)
-            if self.face_compare_w_desc(img, img2_desc):
-                return actor['name']
-        return 'Unknown'
-
     #Функция сравнения изображения с дескриптором
     def face_compare_w_desc(self,desc1, desc2):
         return self.dist_bool(desc1, desc2)
 
     #Функция поиска имени актера по фото
     def find_name(self, img):
-        img1_desc = facerec.face_descriptor(img1)
-        for index,actor in tqdm.tqdm(self.datatable.iterrows()):
+        starttm = time.time()
+        img1_desc = facerec.face_descriptor(img)
+        for index,actor in self.datatable.iterrows():
             #print(index)
             if len(self.data) != 0:
-                img2_desc = self.data[index]
+                img2_desc = self.data['desc'][index]
             else:
                 path = actor['path']
                 img2 = Image.open('../face_dataset/' + path)
                 img2 = img2.convert('RGB')
                 img2 = np.array(img2)[:, :, :3]
                 img2_desc = self.face_descriptor(img2)
-            if self.face_compare_w_desc(img1_desc, img2_desc):
+            result,score = self.face_compare_w_desc(img1_desc, img2_desc)
+            if result:
+                endtm = time.time()
+                print(endtm-starttm,score,index)
                 return actor['name']
         return 'Unknown'
 
@@ -163,7 +177,7 @@ if __name__ == '__main__':
     img1_desc = facerec.face_descriptor(img1)
     img2_id = facerec.datatable[facerec.datatable['name']=='Tom Cruise'].iloc[0].name
     print(img2_id)
-    img2_desc = facerec.data[img2_id]
+    img2_desc = facerec.data['desc'][img2_id]
     print(facerec.face_compare_w_desc(img1_desc,img2_desc))
 
     print(facerec.find_name(img1))
