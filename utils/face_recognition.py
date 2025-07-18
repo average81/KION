@@ -10,6 +10,7 @@ import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.figure import figaspect
 
+
 #Класс работы с изображениями
 class FaceRecognition:
     def __init__(self, detector = 'hog', recognition_value = 0.5):
@@ -45,11 +46,12 @@ class FaceRecognition:
                 if tomemory:
                     print('Загрузка изображений лиц в ОЗУ')
                     for i in tqdm.tqdm(range(len(self.datatable))):
-                        image = Image.open('../face_dataset/' + self.datatable['path'][i]).resize((180, 180))
+                        image = Image.open('../face_dataset/' + self.datatable['path'][i])
                         #Если изображение черно-белое, то преобразуем в цветное
                         image = image.convert('RGB')
                         image = np.array(image)[:, :, :3]
-                        self.data.append(image)
+                        descriptor = self.face_descriptor(image)
+                        self.data.append(descriptor)
             else:
                 print('Создание таблицы для работы с данными')
                 self.datatable = pd.DataFrame(columns=['name', 'path'])
@@ -57,10 +59,11 @@ class FaceRecognition:
                     path = '../face_dataset/' + path_dir + '/'
                     for path_image in tqdm.tqdm(sorted(os.listdir(path=path))):
                         if tomemory:
-                            image = Image.open(path + path_image).resize((180, 180))
+                            image = Image.open(path + path_image)
                             image = image.convert('RGB')
                             image = np.array(image)[:, :, :3]
-                            self.data.append(image)
+                            descriptor = self.face_descriptor(image)
+                            self.data.append(descriptor)
                         new_row = {'name': path_dir, 'path': path + path_image}
                         self.datatable.loc[len(self.datatable)] = new_row
                 #Сохраняем таблицу в формате parquet
@@ -98,6 +101,10 @@ class FaceRecognition:
     def face_compare(self, img1, img2):
         return self.dist_bool(self.face_descriptor(img1), self.face_descriptor(img2))
 
+    #Функция сравнения изображения с дескриптором
+    def face_compare_w_desc(self,img1, descriptor):
+        return self.dist_bool(self.face_descriptor(img1), descriptor)
+
 def plot_img(img1, img2):
     height_max = max(img1.shape[1], img2.shape[1])
     width_max = max(img1.shape[0], img2.shape[0])
@@ -111,11 +118,13 @@ def plot_img(img1, img2):
     plt.show()
 
 if __name__ == '__main__':
+
+    print(f'Использование GPU в Dlib: {dlib.DLIB_USE_CUDA}')
     facerec = FaceRecognition()
     facerec.load_dataset(tomemory = True)
     img1 = io.imread('https://biography-life.ru/uploads/posts/2018-09/1536266366_tom-kruz2.jpg')
     img2_id = facerec.datatable[facerec.datatable['name']=='Tom Cruise'].iloc[0].name
     print(img2_id)
-    img2 = facerec.data[img2_id]
-    print(facerec.face_compare(img1,img2))
-    plot_img(img1,img2)
+    img2_desc = facerec.data[img2_id]
+    print(facerec.face_compare_w_desc(img1,img2_desc))
+    #plot_img(img1,img2)
