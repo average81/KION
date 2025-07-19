@@ -179,6 +179,42 @@ class FaceRecognition:
                 return actor['name']
         return 'Unknown'
 
+    #Функция поиска имен актеров по фото
+    def find_names(self, images, path = None):
+        #images - словарь с фото и ID актеров
+        #path - путь к папке с фото
+        starttm = time.time()
+        names = {}  # Словарь с именами и дескрипторами лиц
+        if len(images) == 0:
+            images = {}
+            if path != None:
+                for path_dir in sorted(os.listdir(path=path)):
+                    path = path + path_dir + '/'
+                    for path_image in sorted(os.listdir(path=path)):
+                        image = Image.open(path + path_image)
+                        image = image.convert('RGB')
+                        image = np.array(image)[:, :, :3]
+                        images[path_dir] = image
+            else:
+                df = pd.DataFrame(columns=['id','name'])
+                print('Wrong parameters for the face recognition')
+                return df
+        for id in images:
+            for img in images[id]:
+                name = self.find_name(img)
+                names[id] = name
+        endtm = time.time()
+        print(f' Faces recognition time: {endtm-starttm}')
+        print(names)
+        df = pd.DataFrame(columns=['id','name'])
+        for id,name in names.items():
+            df.loc[len(df)] = [id,name]
+        if not os.path.exists('../tmp'):
+            os.mkdir('../tmp')
+        df.to_csv('../tmp/names.csv', index=True)
+        return df
+
+
 def plot_img(img1, img2):
     height_max = max(img1.shape[1], img2.shape[1])
     width_max = max(img1.shape[0], img2.shape[0])
@@ -202,5 +238,5 @@ if __name__ == '__main__':
     print(img2_id)
     img2_desc = facerec.data['desc'][img2_id]
     print(facerec.face_compare_w_desc(img1_desc,img2_desc))
-
-    print(facerec.find_name(img1))
+    images = {'0':[img1]}
+    print(facerec.find_names(images))
