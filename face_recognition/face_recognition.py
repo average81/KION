@@ -10,31 +10,30 @@ import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.figure import figaspect
 import time
+from face_detectors import HogFaceDetector, MmodFaceDetector
+
+#Список детекторов
+face_detectors = {
+    'hog': HogFaceDetector,
+    'mmod': MmodFaceDetector,
+}
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 #Класс работы с изображениями
 class FaceRecognition:
     def __init__(self, detector = 'hog', recognition_value = 0.5):
-        if detector == 'hog':
-            self.detector_type = 'hog'
-            self.detector = dlib.get_frontal_face_detector()
-            self.predictor = dlib.shape_predictor(script_dir + '/shape_predictor_68_face_landmarks.dat')
+        if detector not in face_detectors:
+            logging.error('Детектор не найден')
+            return
+        for det in face_detectors:
+            if detector == det:
+                self.detector = face_detectors[det]()
+        logging.info('Подключение детектора ' + detector + ' к классу FaceRecognition')
         self.facerec = dlib.face_recognition_model_v1(script_dir + '/dlib_face_recognition_resnet_model_v1.dat')
         self.recognition_value = recognition_value
         self.names = []
         self.data = pd.DataFrame(columns = ['desc'])
         self.datatable = pd.DataFrame(columns=['name', 'path'])
-
-    #Функция для определения лица на изображении
-    def detect_face(self, image):
-        dets = self.detector(image, 1)
-        shape = None
-        if len(dets) != 0 and self.detector_type == 'hog':
-            for k, d in enumerate(dets):
-                #print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
-                #    k, d.left(), d.top(), d.right(), d.bottom()))
-                shape = self.predictor(image, d)
-        return shape
 
     #Функция загрузки датасета
     def load_dataset(self, tomemory = False):
@@ -57,6 +56,7 @@ class FaceRecognition:
                             descriptor = self.face_descriptor(image)
                             self.data.loc[i] = [descriptor]
                         self.data.to_pickle(script_dir + '/../face_dataframe/table_desc.pcl')
+
             else:
                 logging.info('Создание таблицы для работы с данными')
                 for path_dir in sorted(os.listdir(path=script_dir + '/../face_dataset')):
@@ -76,36 +76,9 @@ class FaceRecognition:
                 self.data.to_pickle(script_dir + '/../face_dataframe/table_desc.pcl')
                 logging.info('Создана новая таблица')
 
-    #Функция получения рамки лица
-    def shape_of_image(self,img):
-        dets = self.detector(img, 1)
-        shape = None
-        for k, d in enumerate(dets):
-            #print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
-            #    k, d.left(), d.top(), d.right(), d.bottom()))
-            shape = self.predictor(img, d)
-        return shape
-
-    #Функция получения рамки лица для многопоточного варианта
-    def shape_of_image_thread(self,image_queue, result_queue):
-        while True:
-            # Получаем задание из очереди
-            image = image_queue.get()
-
-            if image is None:
-                break
-
-            dets = self.detector(image, 1)
-            for k, d in enumerate(dets):
-                #print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
-                #    k, d.left(), d.top(), d.right(), d.bottom()))
-                shape = self.predictor(image, d)
-                result_queue.put((image.copy(), shape))
-        image_queue.task_done()
-
     #Функция получения дескриптора лица
     def face_descriptor(self,img):
-        shape = self.shape_of_image(img)
+        shape = self.detector.shape_of_image(img)
         if shape != None:
             return self.facerec.compute_face_descriptor(img, shape)
         return None
@@ -138,7 +111,7 @@ class FaceRecognition:
     #Функция поиска имени актера по фото
     def find_name(self, img):
         starttm = time.time()
-        img1_desc = facerec.face_descriptor(img)
+        img1_desc = self.face_descriptor(img)
         #Предварительный поиск
         candidates = []
         for name in self.names:
@@ -225,16 +198,20 @@ def plot_img(img1, img2):
     plt.title('Второе фото'), plt.xticks([]), plt.yticks([])
     plt.show()
 
+
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     print(f'Использование GPU в Dlib: {dlib.DLIB_USE_CUDA}')
-    facerec = FaceRecognition()
-    facerec.load_dataset(tomemory = True)
+    facefnd = FaceRecognition(detector = 'mmod')
+    facefnd.load_dataset(tomemory = True)
     img1 = io.imread('https://biography-life.ru/uploads/posts/2018-09/1536266366_tom-kruz2.jpg')
-    img1_desc = facerec.face_descriptor(img1)
-    img2_id = facerec.datatable[facerec.datatable['name']=='Tom Cruise'].iloc[0].name
+    logging.info('Фото загружено')
+    print('----------')
+    img1_desc = facefnd.face_descriptor(img1)
+    logging.info('Дескриптор фото посчитан')
+    img2_id = facefnd.datatable[facefnd.datatable['name']=='Tom Cruise'].iloc[0].name
     print(img2_id)
-    img2_desc = facerec.data['desc'][img2_id]
-    print(facerec.face_compare_w_desc(img1_desc,img2_desc))
+    img2_desc = facefnd.data['desc'][img2_id]
     images = {'0':[img1]}
-    print(facerec.find_names(images))
+    print(facefnd.find_names(images))
