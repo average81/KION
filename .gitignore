@@ -27,8 +27,6 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -83,35 +81,20 @@ profile_default/
 ipython_config.py
 
 # pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
+.python-version
 
 # pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
 #Pipfile.lock
 
 # poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
 #poetry.lock
 
 # pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#pdm.lock
-#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
-#   in version control.
-#   https://pdm.fming.dev/latest/usage/project/#working-with-version-control
 .pdm.toml
 .pdm-python
 .pdm-build/
 
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+# PEP 582
 __pypackages__/
 
 # Celery stuff
@@ -154,16 +137,12 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# PyCharm
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+# IDE settings
+.idea/
 .cursorindexingignore
 .vscode/
 
-# Video files
+# Video files (большие файлы)
 *.mp4
 *.mkv
 *.avi
@@ -171,20 +150,10 @@ cython_debug/
 *.wmv
 *.flv
 
-# Archive and DeepSORT
-archive/*
-deep_sort_pytorch/*
+# DeepSORT directory (не используется в текущем проекте)
+deep_sort_pytorch/
 
-# DeepSORT specific files (additional exclusions)
-deep_sort_pytorch/configs/*.yaml
-deep_sort_pytorch/configs/*.yml
-deep_sort_pytorch/deep_sort/deep/checkpoint/*.pth
-deep_sort_pytorch/deep_sort/deep/checkpoint/*.t7
-deep_sort_pytorch/detector/YOLOv3/weight/*.weights
-deep_sort_pytorch/detector/YOLOv5/*.pt
-deep_sort_pytorch/detector/Mask_RCNN/save_weights/*.pth
-
-# Model weights and checkpoints
+# Model weights (большие файлы)
 *.pt
 *.pth
 *.weights
@@ -194,7 +163,7 @@ deep_sort_pytorch/detector/Mask_RCNN/save_weights/*.pth
 *.pb
 *.onnx
 
-# Configuration files that might contain sensitive data
+# Configuration files (могут содержать чувствительные данные)
 *.yaml
 *.yml
 *.json
@@ -216,3 +185,9 @@ output/
 results/
 temp/
 tmp/
+
+# Archive directory (резервные копии)
+archive/
+
+# Extracted images directory
+extracted_images/
