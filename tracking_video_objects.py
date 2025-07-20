@@ -47,6 +47,10 @@ class BoundingBoxTracker:
         best_match_id = None
         best_iou = 0.0
         
+        # Вычисляем центр нового объекта
+        new_center_x = (new_box[0] + new_box[2]) / 2
+        new_center_y = (new_box[1] + new_box[3]) / 2
+        
         for object_id, obj in self.objects.items():
             if obj.class_id == class_id:  # только объекты того же класса
                 # Получаем последнюю позицию объекта
@@ -54,7 +58,13 @@ class BoundingBoxTracker:
                     last_box = obj.history[-1][:4]  # x1, y1, x2, y2
                     iou = self.calculate_iou(new_box, last_box)
                     
-                    if iou > best_iou and iou > self.iou_threshold:
+                    # Дополнительная проверка по расстоянию между центрами
+                    last_center_x = (last_box[0] + last_box[2]) / 2
+                    last_center_y = (last_box[1] + last_box[3]) / 2
+                    distance = np.sqrt((new_center_x - last_center_x)**2 + (new_center_y - last_center_y)**2)
+                    
+                    # Требуем высокий IoU И небольшое расстояние между центрами
+                    if (iou > best_iou and iou > self.iou_threshold and distance < 50):
                         best_iou = iou
                         best_match_id = object_id
         
@@ -264,7 +274,7 @@ colors = [
 ]
 
 # Создаем трекер для сглаживания координат и интерполяции с уникализацией объектов
-tracker = BoundingBoxTracker(max_history=10, min_confidence=0.3, interpolation_frames=5, iou_threshold=0.3)
+tracker = BoundingBoxTracker(max_history=15, min_confidence=0.5, interpolation_frames=5, iou_threshold=0.7)
 
 # Открытие исходного видеофайла
 input_video_path = 'in2.mp4'

@@ -162,4 +162,57 @@ cython_debug/
 #.idea/
 .cursorindexingignore
 .vscode/
+
+# Video files
 *.mp4
+*.mkv
+*.avi
+*.mov
+*.wmv
+*.flv
+
+# Archive and DeepSORT
+archive/*
+deep_sort_pytorch/*
+
+# DeepSORT specific files (additional exclusions)
+deep_sort_pytorch/configs/*.yaml
+deep_sort_pytorch/configs/*.yml
+deep_sort_pytorch/deep_sort/deep/checkpoint/*.pth
+deep_sort_pytorch/deep_sort/deep/checkpoint/*.t7
+deep_sort_pytorch/detector/YOLOv3/weight/*.weights
+deep_sort_pytorch/detector/YOLOv5/*.pt
+deep_sort_pytorch/detector/Mask_RCNN/save_weights/*.pth
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.weights
+*.t7
+*.ckpt
+*.h5
+*.pb
+*.onnx
+
+# Configuration files that might contain sensitive data
+*.yaml
+*.yml
+*.json
+*.cfg
+*.ini
+*.conf
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.cache
+*.bak
+*.swp
+*.swo
+
+# Output directories
+output/
+results/
+temp/
+tmp/
