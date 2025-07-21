@@ -4,8 +4,6 @@ import dlib
 from scipy.spatial import distance # Библиотека для вычисления евклидова расстояния между векторами признаков
 from skimage import io # Библиотека для доступа к картинкам
 import os
-from PIL import Image, ImageDraw
-import numpy as np
 import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.figure import figaspect
@@ -49,10 +47,7 @@ class FaceRecognition:
                         self.data = pd.read_pickle(script_dir + '/../face_dataframe/table_desc.pcl')
                     else:
                         for i in tqdm.tqdm(range(len(self.datatable))):
-                            image = Image.open(script_dir + '/../face_dataset/' + self.datatable['path'][i])
-                            #Если изображение черно-белое, то преобразуем в цветное
-                            image = image.convert('RGB')
-                            image = np.array(image)[:, :, :3]
+                            image = dlib.load_rgb_image(script_dir + '/../face_dataset/' + self.datatable['path'][i])
                             descriptor = self.face_descriptor(image)
                             self.data.loc[i] = [descriptor]
                         self.data.to_pickle(script_dir + '/../face_dataframe/table_desc.pcl')
@@ -63,9 +58,7 @@ class FaceRecognition:
                     path = script_dir + '/../face_dataset/' + path_dir + '/'
                     for path_image in tqdm.tqdm(sorted(os.listdir(path=path))):
                         if tomemory:
-                            image = Image.open(path + path_image)
-                            image = image.convert('RGB')
-                            image = np.array(image)[:, :, :3]
+                            image = dlib.load_rgb_image(path + path_image)
                             descriptor = self.face_descriptor(image)
                             self.data.loc[len(self.datatable)] = [descriptor]
                         new_row = {'name': path_dir, 'path': path + path_image}
@@ -80,6 +73,8 @@ class FaceRecognition:
     def face_descriptor(self,img):
         shape = self.detector.shape_of_image(img)
         if shape != None:
+            #Вывод рамки лица
+            #print(f'shape: {shape.parts()}')
             return self.facerec.compute_face_descriptor(img, shape)
         return None
 
@@ -120,9 +115,7 @@ class FaceRecognition:
                 img2_desc = self.data['desc'][index]
             else:
                 path = self.datatable['path'][index]
-                img2 = Image.open(script_dir + '/../face_dataset/' + path)
-                img2 = img2.convert('RGB')
-                img2 = np.array(img2)[:, :, :3]
+                img2 = dlib.load_rgb_image(script_dir + '/../face_dataset/' + path)
                 img2_desc = self.face_descriptor(img2)
             score = self.dist_euqlid(img1_desc, img2_desc)
             logging.info(f'"{name}",distance: {score}')
@@ -130,18 +123,16 @@ class FaceRecognition:
                 candidates = candidates +[name]
                 if score < self.recognition_value:
                     endtm = time.time()
-                    print(f'time: {endtm-starttm},distance: {score}')
+                    #print(f'time: {endtm-starttm},distance: {score}')
                     return name
-        logging.info(f'Кандидаты на тщательный поиск: {candidates}')
+        #logging.info(f'Кандидаты на тщательный поиск: {candidates}')
         for index,actor in self.datatable[self.datatable['name'].isin(candidates)].iterrows():
             #print(index)
             if len(self.data) != 0:
                 img2_desc = self.data['desc'][index]
             else:
                 path = actor['path']
-                img2 = Image.open(script_dir + '/../face_dataset/' + path)
-                img2 = img2.convert('RGB')
-                img2 = np.array(img2)[:, :, :3]
+                img2 = dlib.load_rgb_image(script_dir + '/../face_dataset/' + path)
                 img2_desc = self.face_descriptor(img2)
             result,score = self.face_compare_w_desc(img1_desc, img2_desc)
             if result:
@@ -162,9 +153,7 @@ class FaceRecognition:
                 for path_dir in sorted(os.listdir(path=path)):
                     path = path + path_dir + '/'
                     for path_image in sorted(os.listdir(path=path)):
-                        image = Image.open(path + path_image)
-                        image = image.convert('RGB')
-                        image = np.array(image)[:, :, :3]
+                        image = dlib.load_rgb_image(path + path_image)
                         images[path_dir] = image
             else:
                 df = pd.DataFrame(columns=['id','name'])

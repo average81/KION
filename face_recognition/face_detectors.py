@@ -16,14 +16,17 @@ class HogFaceDetector:
 
     #Функция получения рамки лица
     def shape_of_image(self,img):
-        dets = self.detector(img, 1)
-        print("Number of faces detected: {}".format(len(dets)))
+        resize = 1
+        if img.shape[0] < 80 or img.shape[1] < 80:
+            resize = 80 / min(img.shape[0], img.shape[1])
+        dets = self.detector(img, resize)
+        #print("Number of faces detected: {}".format(len(dets)))
         shape = None
         for k, d in enumerate(dets):
-            print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
-                k, d.left(), d.top(), d.right(), d.bottom()))
+            #print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
+            #    k, d.left(), d.top(), d.right(), d.bottom()))
             shape = self.predictor(img, d)
-            print(shape)
+            #print(shape)
         return shape
 
 class MmodFaceDetector:
@@ -34,7 +37,10 @@ class MmodFaceDetector:
 
     #Функция получения рамки лица
     def shape_of_image(self,img):
-        dets = self.detector(img, 1)
+        resize = 1
+        if img.shape[0] < 80 or img.shape[1] < 80:
+            resize = 80 // min(img.shape[0], img.shape[1])
+        dets = self.detector(img, resize)
         #print("Number of faces detected: {}".format(len(dets)))
         #print(f'confidence: {[dets[i].confidence for i in range(len(dets))]}')
         shape = None

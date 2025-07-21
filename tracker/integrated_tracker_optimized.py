@@ -9,6 +9,7 @@ from collections import deque, defaultdict
 import time
 from typing import List, Tuple, Optional, Dict, Any
 import logging
+from face_recognition import FaceRecognition
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -447,11 +448,12 @@ class OptimizedSceneDetector:
 class OptimizedVideoProcessor:
     """Оптимизированный процессор видео"""
     
-    def __init__(self, model_path: str = script_dir + "/yolov8n.pt"):
+    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod'):
         self.model = YOLO(model_path)
         self.scene_detector = OptimizedSceneDetector()
         self.tracker = OptimizedBoundingBoxTracker()
         self.color_cache = {}  # Кэш цветов для ID
+        self.face_recognition = FaceRecognition(detector)
         
     def process_video(self, input_path: str, output_path: str):
         """Обрабатывает видео с детекцией, трекингом и сменой сцен"""
@@ -469,7 +471,7 @@ class OptimizedVideoProcessor:
         
         frame_count = 0
         last_scene_change = 0
-        
+        self.names = {}
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -480,6 +482,7 @@ class OptimizedVideoProcessor:
             # Детекция смены сцены
             scene_changed = self.scene_detector.detect_scene_change(frame, frame_count, fps)
             if scene_changed:
+                self.names = {}  # Сброс имен после смены сцены
                 self.tracker.reset()
                 last_scene_change = frame_count
             # YOLO детекция (каждый кадр)
@@ -501,7 +504,22 @@ class OptimizedVideoProcessor:
             
             # Обновление трекера
             tracked_boxes = self.tracker.update(detections, frame_count)
-            
+            # Обработка лиц
+            if tracked_boxes:
+                for box in tracked_boxes:
+                    x1, y1, x2, y2 = box[:4]
+                    x1 = int(x1)
+                    y1 = int(y1)
+                    x2 = int(x2)
+                    y2 = int(y2)
+                    obj_id = box[5]
+                    if obj_id not in self.names:
+                        human_img = np.array(frame[y1:y2, x1:x2])
+                        #print(human_img.shape)
+                        name = self.face_recognition.find_name(human_img)
+                        if name != "Unknown":
+                            self.names[obj_id] = name
+                            logger.info(f"👤 Обнаружено лицо для объекта {obj_id}: {self.names[obj_id]}")
             # Отрисовка результатов
             processed_frame = self._draw_results(frame, tracked_boxes, frame_count, fps)
             
@@ -604,7 +622,8 @@ class OptimizedVideoProcessor:
             cv2.rectangle(result_frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 3)
             
             # Фон для текста
-            text = f"ID: {obj_id}"
+            #text = f"ID: {obj_id}"
+            text = self.names[obj_id] if obj_id in self.names else f"ID: {obj_id}"
             (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
             cv2.rectangle(result_frame, (int(x1), int(y1)-text_height-10), 
                          (int(x1)+text_width+10, int(y1)), color, -1)
