@@ -190,4 +190,14 @@ tmp/
 archive/
 
 # Extracted images directory
-extracted_images/
+photos/
+
+
+.venv_py39/
+video_tracker_shots_lib/
+video_tracker_shots_v2/
+video_tracker_lib/
+test_library.py
+test_shot_7_debug.py
+test_shots_library.py
+test_shots_v2.py
