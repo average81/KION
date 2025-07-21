@@ -1,4 +1,5 @@
 import cv2
+import dlib
 import numpy as np
 import torch
 from ultralytics import YOLO
@@ -453,7 +454,8 @@ class OptimizedVideoProcessor:
         self.scene_detector = OptimizedSceneDetector()
         self.tracker = OptimizedBoundingBoxTracker()
         self.color_cache = {}  # Кэш цветов для ID
-        self.face_recognition = FaceRecognition(detector)
+        self.face_recognition = FaceRecognition(detector,recognition_value = 0.45)
+        self.face_recognition.load_dataset(tomemory = True)
         
     def process_video(self, input_path: str, output_path: str):
         """Обрабатывает видео с детекцией, трекингом и сменой сцен"""
@@ -472,6 +474,7 @@ class OptimizedVideoProcessor:
         frame_count = 0
         last_scene_change = 0
         self.names = {}
+        window = dlib.image_window()
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -513,13 +516,24 @@ class OptimizedVideoProcessor:
                     x2 = int(x2)
                     y2 = int(y2)
                     obj_id = box[5]
+
                     if obj_id not in self.names:
-                        human_img = np.array(frame[y1:y2, x1:x2])
-                        #print(human_img.shape)
+                        #выбираем изображение и меняем BGR на RGB
+                        human_img = np.array(frame[y1:y2, x1:x2, ::-1], dtype=np.uint8)
+
+                        window.set_image(human_img)
+                        #Сохраняем изображение
+                        #if human_img is not None:
+                        #    human_img = cv2.cvtColor(human_img, cv2.COLOR_BGR2RGB)
+                        #    cv2.imwrite(f"{time.time()}-{obj_id}.jpg", human_img)
                         name = self.face_recognition.find_name(human_img)
+                        window.wait_for_keypress(' ')
                         if name != "Unknown":
                             self.names[obj_id] = name
-                            logger.info(f"👤 Обнаружено лицо для объекта {obj_id}: {self.names[obj_id]}")
+                            window.set_title(f"{name} ({obj_id})")
+                            logging.info(f"👤 Обнаружено лицо для объекта {obj_id}: {self.names[obj_id]}")
+                        else:
+                            window.set_title('Unknown')
             # Отрисовка результатов
             processed_frame = self._draw_results(frame, tracked_boxes, frame_count, fps)
             
@@ -625,16 +639,16 @@ class OptimizedVideoProcessor:
             #text = f"ID: {obj_id}"
             text = self.names[obj_id] if obj_id in self.names else f"ID: {obj_id}"
             (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-            cv2.rectangle(result_frame, (int(x1), int(y1)-text_height-10), 
+            cv2.rectangle(result_frame, (int(x1), int(y1)-text_height+15),
                          (int(x1)+text_width+10, int(y1)), color, -1)
             
             # Текст ID
-            cv2.putText(result_frame, text, (int(x1)+5, int(y1)-5), 
+            cv2.putText(result_frame, text, (int(x1)+5, int(y1)+20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
             # Показываем уверенность
             conf_text = f"{conf:.2f}"
-            cv2.putText(result_frame, conf_text, (int(x1), int(y2)+20), 
+            cv2.putText(result_frame, conf_text, (int(x1), int(y2)-5),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         
         # Отображение номера шота

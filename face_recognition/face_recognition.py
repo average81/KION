@@ -81,6 +81,8 @@ class FaceRecognition:
     #Функция сравнения 2 дескрипторов
     def dist_bool(self,face_descriptor1, face_descriptor2):
         distance = self.dist_euqlid(face_descriptor1, face_descriptor2)
+        if distance == None:
+            return False,0
         if distance < self.recognition_value:
             return True,distance
         return False,0
@@ -118,14 +120,16 @@ class FaceRecognition:
                 img2 = dlib.load_rgb_image(script_dir + '/../face_dataset/' + path)
                 img2_desc = self.face_descriptor(img2)
             score = self.dist_euqlid(img1_desc, img2_desc)
-            logging.info(f'"{name}",distance: {score}')
+            logging.debug(f'"{name}",distance: {score}')
+            if score == None:
+                continue
             if score < 0.7:
                 candidates = candidates +[name]
                 if score < self.recognition_value:
                     endtm = time.time()
                     #print(f'time: {endtm-starttm},distance: {score}')
                     return name
-        #logging.info(f'Кандидаты на тщательный поиск: {candidates}')
+        logging.debug(f'Кандидаты на тщательный поиск: {candidates}')
         for index,actor in self.datatable[self.datatable['name'].isin(candidates)].iterrows():
             #print(index)
             if len(self.data) != 0:
@@ -137,7 +141,7 @@ class FaceRecognition:
             result,score = self.face_compare_w_desc(img1_desc, img2_desc)
             if result:
                 endtm = time.time()
-                logging.info(f'time: {endtm-starttm},distance: {score}')
+                logging.debug(f'time: {endtm-starttm},distance: {score}')
                 return actor['name']
         return 'Unknown'
 
@@ -194,7 +198,8 @@ if __name__ == '__main__':
     print(f'Использование GPU в Dlib: {dlib.DLIB_USE_CUDA}')
     facefnd = FaceRecognition(detector = 'mmod')
     facefnd.load_dataset(tomemory = True)
-    img1 = io.imread('https://biography-life.ru/uploads/posts/2018-09/1536266366_tom-kruz2.jpg')
+    #img1 = io.imread('https://biography-life.ru/uploads/posts/2018-09/1536266366_tom-kruz2.jpg')
+    img1 = dlib.load_rgb_image('tst1.png')
     logging.info('Фото загружено')
     print('----------')
     img1_desc = facefnd.face_descriptor(img1)
@@ -204,3 +209,4 @@ if __name__ == '__main__':
     img2_desc = facefnd.data['desc'][img2_id]
     images = {'0':[img1]}
     print(facefnd.find_names(images))
+    print(facefnd.find_name(img1))
