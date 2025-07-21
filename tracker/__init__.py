@@ -1,1 +1,5 @@
 from .tracking_video_objects import BoundingBoxTracker as BoundingBoxTracker
+from .integrated_tracker_optimized import OptimizedBoundingBoxTracker as OptimizedBoundingBoxTracker
+from .integrated_tracker_optimized import OptimizedSceneDetector as OptimizedSceneDetector
+from .integrated_tracker_optimized import OptimizedVideoProcessor as OptimizedVideoProcessor
+from .integrated_tracker_optimized import TrackedObject as TrackedObject

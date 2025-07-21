@@ -10,7 +10,7 @@ import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.figure import figaspect
 import time
-from face_detectors import HogFaceDetector, MmodFaceDetector
+from .face_detectors import HogFaceDetector, MmodFaceDetector
 
 #Список детекторов
 face_detectors = {

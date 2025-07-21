@@ -35,13 +35,13 @@ class MmodFaceDetector:
     #Функция получения рамки лица
     def shape_of_image(self,img):
         dets = self.detector(img, 1)
-        print("Number of faces detected: {}".format(len(dets)))
-        print(f'confidence: {[dets[i].confidence for i in range(len(dets))]}')
+        #print("Number of faces detected: {}".format(len(dets)))
+        #print(f'confidence: {[dets[i].confidence for i in range(len(dets))]}')
         shape = None
         score = 0
         for k, d in enumerate(dets):
-            print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
-                k, d.rect.left(), d.rect.top(), d.rect.right(), d.rect.bottom()))
+            #print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
+            #    k, d.rect.left(), d.rect.top(), d.rect.right(), d.rect.bottom()))
             if d.confidence > score:
                 score = d.confidence
                 shape = self.predictor(img, d.rect)

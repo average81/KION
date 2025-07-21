@@ -1,5 +1,5 @@
 from face_recognition import FaceRecognition
-from tracker import BoundingBoxTracker
+from tracker import *
 import logging
 import argparse
 
@@ -13,4 +13,5 @@ if __name__ == '__main__':
     #Подготовка модулей
     logging.info('Start')
     face_recognition = FaceRecognition()
-    tracking_video_objects = BoundingBoxTracker()
+    processor = OptimizedVideoProcessor()
+    processor.process_video(args.video, args.output_dir)
