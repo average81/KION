@@ -165,26 +165,28 @@ class ComplexVideoProcessor:
 
         #Сохраняем шорты
         shorts_path = output_path + '/shorts'
-        #self.save_scenes_as_videos(video_path, self.clip.fps, video_scenes, shorts_path)
+        prefix = 'input_short_'
+        self.save_scenes_as_videos(video_path, self.clip.fps, video_scenes, shorts_path, prefix)
         #Сохраняем сцены
         if merged_scenes:
             scene_path = output_path + '/scenes'
-            #self.save_scenes_as_videos(video_path, self.clip.fps, merged_scenes, scene_path)
+            prefix = 'input_scene_'
+            self.save_scenes_as_videos(video_path, self.clip.fps, merged_scenes, scene_path,prefix)
 
         #обработка шортов
+        if not os.path.exists(output_path + f'/shaped_shorts'):
+            os.makedirs(output_path + f'/shaped_shorts')
         for i, (start, end) in enumerate(video_scenes):
             short_clip = self.clip.subclipped(start + 2/self.clip.fps, end)
-            self.video_short_tracker(short_clip, output_path + f'/shaped_shorts/{i}.mp4', i)
+            self.video_short_tracker(short_clip, output_path + f'/shaped_shorts/input_debug_{i}.mp4', i)
         self.clip.close()
 
-    def save_scenes_as_videos(self, video_path, fps, final_scenes, output_dir='./scenes'):
+    def save_scenes_as_videos(self, video_path, fps, final_scenes, output_dir='./scenes',prefix:str = ''):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        video_name = os.path.splitext(os.path.basename(video_path))[0]
-
         for i, scene in enumerate(final_scenes):
-            output_path = os.path.join(output_dir, f"{video_name}_scene_{i+1}.mp4")
+            output_path = os.path.join(output_dir, f"{prefix}{i+1}.mp4")
 
             # Используем moviepy для вырезания сцены
             clip = VideoFileClip(video_path).subclipped(scene[0] + 2/fps, scene[1])
