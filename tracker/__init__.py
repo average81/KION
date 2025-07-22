@@ -3,3 +3,4 @@ from .integrated_tracker_optimized import OptimizedBoundingBoxTracker as Optimiz
 from .integrated_tracker_optimized import OptimizedSceneDetector as OptimizedSceneDetector
 from .integrated_tracker_optimized import OptimizedVideoProcessor as OptimizedVideoProcessor
 from .integrated_tracker_optimized import TrackedObject as TrackedObject
+from .complex_tracker import ComplexVideoProcessor as ComplexVideoProcessor

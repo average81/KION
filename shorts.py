@@ -20,9 +20,11 @@ if __name__ == '__main__':
     if args.output_dir:
         if not os.path.exists(args.output_dir):
             os.makedirs(args.output_dir)
-    processor = OptimizedVideoProcessor()
+    #processor = OptimizedVideoProcessor()
+    processor = ComplexVideoProcessor()
     #временно
     file = 'out.mp4'
-    processor.process_video(args.video, args.output_dir + "/" + file)
+    #processor.process_video(args.video, args.output_dir + "/" + file)
+    processor.process_video(args.video, args.output_dir)
     end_time = time.time()
     logging.info(f'Total Time: {end_time - start_time}')

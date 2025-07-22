@@ -475,6 +475,7 @@ class OptimizedVideoProcessor:
         last_scene_change = 0
         self.names = {}
         window = dlib.image_window()
+        shapes_df = pd.DataFrame(columns=['id', 'y', 'shape'])
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -550,7 +551,7 @@ class OptimizedVideoProcessor:
         out.release()
         
         # Сохранение анализа
-        self.scene_detector.save_analysis("scene_analysis_optimized.csv", fps)
+        self.scene_detector.save_analysis(output_path + "/scene_analysis_optimized.csv", fps)
         
         # Присоединение аудио
         self._attach_audio(input_path, output_path)
