@@ -201,3 +201,7 @@ test_library.py
 test_shot_7_debug.py
 test_shots_library.py
 test_shots_v2.py
+tracker/__init__.py
+tracker/integrated_tracker_optimized.py
+tracker/tracking_video_objects.py
+yolov8n.pt_new
