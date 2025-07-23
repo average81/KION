@@ -159,13 +159,13 @@ class FaceRecognition:
         candidates = []
         if len(self.local_dataset) != 0:
             for name in self.local_dataset['name'].unique():
-                index = self.local_dataset[self.local_dataset['name']== name].iloc[0].name
-                img2_desc = self.local_dataset['desc'][index]
+                #index = self.local_dataset[self.local_dataset['name']== name].iloc[0].name
+                img2_desc = self.local_dataset[self.local_dataset['name']== name].iloc[0].desc
                 result, score = self.face_compare_w_desc(img1_desc, img2_desc)
                 if result:
                     endtm = time.time()
                     logging.debug(f'time: {endtm-starttm},distance: {score}')
-                    return self.local_dataset['name'][0]
+                    return name
                 elif score < 0.5:
                     candidates = candidates +[name]
             for index,actor in self.local_dataset[self.local_dataset['name'].isin(candidates)].iterrows():

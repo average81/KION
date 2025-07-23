@@ -50,7 +50,7 @@ class ComplexVideoProcessor:
 
         self.names = {}
         #window = dlib.image_window()
-        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape'])
+        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_shape'])
         for frame_count in tqdm.tqdm(range(clip.n_frames)):
             frame = clip.get_frame(frame_count/clip.fps)
 
@@ -68,12 +68,13 @@ class ComplexVideoProcessor:
                             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                             conf = box.conf[0].cpu().numpy()
                             #print(result.boxes.id)
-                            detections.append((x1, y1, x2, y2, conf,int(box.id)))
+                            detections.append([x1, y1, x2, y2, conf,int(box.id)])
 
             # Обновление трекера
             #tracked_boxes = self.tracker.update(detections, frame_count)
             tracked_boxes = detections if len(detections) > 0 else []
             # Обработка лиц
+
             if tracked_boxes:
                 for box in tracked_boxes:
                     x1, y1, x2, y2 = box[:4]
@@ -88,7 +89,12 @@ class ComplexVideoProcessor:
                         human_img = np.array(frame[y1:y2, x1:x2], dtype=np.uint8)
 
                         #window.set_image(human_img)
-                        description = self.face_recognition.face_descriptor(human_img)
+                        face = self.face_recognition.detector.shape_of_image(human_img)
+                        if face is None:
+                            description = None
+                        else:
+                            description = self.face_recognition.facerec.compute_face_descriptor(human_img, face)
+                        box.append(face)
                         if description is not None:
                             name = self.face_recognition.find_name_desc(description)
                             if name != "Unknown":
@@ -98,14 +104,14 @@ class ComplexVideoProcessor:
                                     logging.info(f"👤 Сохранено лицо для объекта {name}")
 
             # Сохраняем информацию о треках
-            if len(detections) > 0:
-                for det in detections:
+            if len(tracked_boxes) > 0:
+                for det in tracked_boxes:
                     x1 = int(det[0])
                     y1 = int(det[1])
                     x2 = int(det[2])
                     y2 = int(det[3])
                     track_id = det[5]
-                    shapes_df.loc[len(shapes_df)] = [int(track_id),frame_count,(x1, y1, x2, y2)]
+                    shapes_df.loc[len(shapes_df)] = [int(track_id),frame_count,(x1, y1, x2, y2),det[6]]
         return shapes_df
 
     def video_short_tracker(self, clip, output_path: str, clipnum):
@@ -118,7 +124,7 @@ class ComplexVideoProcessor:
 
         self.names = {}
         #window = dlib.image_window()
-        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape'])
+        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_shape'])
         for frame_count in tqdm.tqdm(range(clip.n_frames)):
             frame = clip.get_frame(frame_count/clip.fps)
             #Берем данные, полученные pretracker
@@ -136,12 +142,17 @@ class ComplexVideoProcessor:
                     y1 = shape[1]
                     x2 = shape[2]
                     y2 = shape[3]
-                    obj_id = detection[0]
+                    obj_id = detection['id']
+                    face = detection['face_shape']
 
                     if obj_id not in self.names:
                         #выбираем изображение и меняем BGR на RGB
                         human_img = np.array(frame[y1:y2, x1:x2], dtype=np.uint8)
-                        name = self.face_recognition.find_name(human_img)
+                        if face is None:
+                            name = 'Unknown'
+                        else:
+                            desc = self.face_recognition.facerec.compute_face_descriptor(human_img, face)
+                            name = self.face_recognition.find_name_desc(desc)
                         #window.wait_for_keypress(' ')
                         if name != "Unknown":
                             self.names[obj_id] = name
@@ -202,12 +213,12 @@ class ComplexVideoProcessor:
         #Сохраняем шоты
         shorts_path = output_path + '/shorts'
         prefix = 'input_short_'
-        self.save_scenes_as_videos(video_path, self.clip.fps, video_scenes, shorts_path, prefix)
+        #self.save_scenes_as_videos(video_path, self.clip.fps, video_scenes, shorts_path, prefix)
         #Сохраняем сцены
         if merged_scenes:
             scene_path = output_path + '/scenes'
             prefix = 'input_scene_'
-            self.save_scenes_as_videos(video_path, self.clip.fps, merged_scenes, scene_path,prefix)
+            #self.save_scenes_as_videos(video_path, self.clip.fps, merged_scenes, scene_path,prefix)
 
         #обработка шотов
         if not os.path.exists(output_path + f'/shaped_shorts'):
@@ -409,7 +420,7 @@ class ComplexVideoProcessor:
 
         # Отрисовка рамок с разноцветными ID
         for row in tracked_boxes.itertuples():
-            _,obj_id,_,shape = row
+            _,obj_id,_,shape,_ = row
             x1, y1, x2, y2 = shape
             if obj_id == None:
                 continue
