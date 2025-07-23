@@ -42,14 +42,11 @@ class ComplexVideoProcessor:
         self.face_recognition = FaceRecognition(detector,recognition_value = 0.4)
         self.face_recognition.load_dataset(tomemory = True)
         self.tracker = OptimizedBoundingBoxTracker()
+        self.shapes_list = []   #список датафреймов по шотам с треками людей
 
-    def video_short_tracker(self, clip, output_path: str, clipnum):
-        """Обрабатывает видео с детекцией и трекомингом объектов"""
-
-        logger.info(f"🎬 Начинаем обработку видео: {clip.n_frames} кадров, {clip.fps:.1f} FPS")
-        # Настройка видеозаписи
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, clip.fps, clip.size)
+    def video_short_pretracker(self, clip, clipnum):
+        #Предварительный проход по видео для записи в локальную базу дескрипторов опознанных актеров именно из этого видео
+        logger.info(f"🎬 Начинаем обработку шота {clipnum}: {clip.n_frames} кадров, {clip.fps:.1f} FPS")
 
         self.names = {}
         #window = dlib.image_window()
@@ -59,9 +56,6 @@ class ComplexVideoProcessor:
 
             # Выполняем трекинг с YOLOv8
             results = self.model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False)
-
-            # Визуализация результатов
-            #annotated_frame = results[0].plot()
 
             # Фильтрация детекций людей
             detections = []
@@ -94,18 +88,14 @@ class ComplexVideoProcessor:
                         human_img = np.array(frame[y1:y2, x1:x2], dtype=np.uint8)
 
                         #window.set_image(human_img)
-                        #Сохраняем изображение
-                        #if human_img is not None:
-                        #    human_img = cv2.cvtColor(human_img, cv2.COLOR_BGR2RGB)
-                        #    cv2.imwrite(f"{time.time()}-{obj_id}.jpg", human_img)
-                        name = self.face_recognition.find_name(human_img)
-                        #window.wait_for_keypress(' ')
-                        if name != "Unknown":
-                            self.names[obj_id] = name
-                            #window.set_title(f"{name} ({obj_id})")
-                            logging.info(f"👤 Обнаружено лицо для объекта {obj_id}: {self.names[obj_id]}")
-                        #else:
-                            #window.set_title('Unknown')
+                        description = self.face_recognition.face_descriptor(human_img)
+                        if description is not None:
+                            name = self.face_recognition.find_name_desc(description)
+                            if name != "Unknown":
+                                if len(self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] == name]) < 10:
+                                    #print(len(self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] == name]))
+                                    self.face_recognition.add_face_desc(description, name)
+                                    logging.info(f"👤 Сохранено лицо для объекта {name}")
 
             # Сохраняем информацию о треках
             if len(detections) > 0:
@@ -116,6 +106,52 @@ class ComplexVideoProcessor:
                     y2 = int(det[3])
                     track_id = det[5]
                     shapes_df.loc[len(shapes_df)] = [int(track_id),frame_count,(x1, y1, x2, y2)]
+        return shapes_df
+
+    def video_short_tracker(self, clip, output_path: str, clipnum):
+        """Обрабатывает видео с детекцией и трекомингом объектов"""
+
+        logger.info(f"🎬 Начинаем обработку шота {clipnum}: {clip.n_frames} кадров, {clip.fps:.1f} FPS")
+        # Настройка видеозаписи
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, clip.fps, clip.size)
+
+        self.names = {}
+        #window = dlib.image_window()
+        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape'])
+        for frame_count in tqdm.tqdm(range(clip.n_frames)):
+            frame = clip.get_frame(frame_count/clip.fps)
+            #Берем данные, полученные pretracker
+            detections = self.shapes_list[clipnum].loc[self.shapes_list[clipnum]['frame'] == frame_count]
+
+
+            # Обновление трекера
+            #tracked_boxes = self.tracker.update(detections, frame_count)
+            tracked_boxes = detections if len(detections) > 0 else []
+            # Обработка лиц
+            if len(tracked_boxes) > 0:
+                for ind,detection in tracked_boxes.iterrows():
+                    shape = detection['shape']
+                    x1 = shape[0]
+                    y1 = shape[1]
+                    x2 = shape[2]
+                    y2 = shape[3]
+                    obj_id = detection[0]
+
+                    if obj_id not in self.names:
+                        #выбираем изображение и меняем BGR на RGB
+                        human_img = np.array(frame[y1:y2, x1:x2], dtype=np.uint8)
+                        name = self.face_recognition.find_name(human_img)
+                        #window.wait_for_keypress(' ')
+                        if name != "Unknown":
+                            self.names[obj_id] = name
+                            logging.info(f"👤 Обнаружено лицо для объекта {obj_id}: {self.names[obj_id]}")
+
+
+            #
+            if len(detections) > 0:
+                for ind,detection in tracked_boxes.iterrows():
+                    shapes_df.loc[len(shapes_df)] = detection
 
         for frame_count in tqdm.tqdm(range(clip.n_frames)):
             # Отрисовка результатов
@@ -127,7 +163,7 @@ class ComplexVideoProcessor:
 
         out.release()
 
-        return shapes_df
+        return
 
     def process_video(self, video_path: str, output_path: str):
         self.video_path = video_path
@@ -139,8 +175,8 @@ class ComplexVideoProcessor:
         # Параметры для нашего случая
         video_weight = 0.7  # больший вес для видео сцен
         audio_weight = 0.3  # меньший вес для аудио сцен
-        min_duration = 3.0  # минимальная длительность сцены в секундах
-        max_duration = 60.0 # максимальная длительность сцены в секундах
+        min_duration = 10.0  # минимальная длительность сцены в секундах
+        max_duration = 600.0 # максимальная длительность сцены в секундах
         merged_scenes = None
         video_scenes = self.detect_video_scenes(video_path)
         logger.info(f"Обнаружено {len(video_scenes)} сцен на основе видео контента:")
@@ -163,7 +199,7 @@ class ComplexVideoProcessor:
             for i, (start, end) in enumerate(merged_scenes):
                 logger.info(f"Сцена {i+1}: {start:.2f} - {end:.2f} сек (длительность: {end-start:.2f} сек)")
 
-        #Сохраняем шорты
+        #Сохраняем шоты
         shorts_path = output_path + '/shorts'
         prefix = 'input_short_'
         self.save_scenes_as_videos(video_path, self.clip.fps, video_scenes, shorts_path, prefix)
@@ -173,9 +209,13 @@ class ComplexVideoProcessor:
             prefix = 'input_scene_'
             self.save_scenes_as_videos(video_path, self.clip.fps, merged_scenes, scene_path,prefix)
 
-        #обработка шортов
+        #обработка шотов
         if not os.path.exists(output_path + f'/shaped_shorts'):
             os.makedirs(output_path + f'/shaped_shorts')
+        for i, (start, end) in enumerate(video_scenes):
+            short_clip = self.clip.subclipped(start + 2/self.clip.fps, end)
+            df = self.video_short_pretracker(short_clip, i)
+            self.shapes_list.append(df)
         for i, (start, end) in enumerate(video_scenes):
             short_clip = self.clip.subclipped(start + 2/self.clip.fps, end)
             self.video_short_tracker(short_clip, output_path + f'/shaped_shorts/input_debug_{i}.mp4', i)
@@ -189,7 +229,7 @@ class ComplexVideoProcessor:
             output_path = os.path.join(output_dir, f"{prefix}{i+1}.mp4")
 
             # Используем moviepy для вырезания сцены
-            clip = VideoFileClip(video_path).subclipped(scene[0] + 2/fps, scene[1])
+            clip = VideoFileClip(video_path).subclipped(scene[0] + 2/fps, scene[1] - 1/3/fps)
             clip.write_videofile(output_path, codec='libx264', audio_codec='aac')
             clip.close()
             logger.info(f"Сохранена сцена {i+1} в {output_path}")
@@ -350,7 +390,7 @@ class ComplexVideoProcessor:
 
         # Добавляем последнюю сцену
         if current_scene['end'] - current_scene['start'] >= min_scene_duration:
-            merged_scenes.append((current_scene['start'], current_scene['end']))
+            merged_scenes.append((current_scene['start'], video_scenes[-1][1])) #Для исключения ошибки работы с видео
 
         # Фильтруем слишком короткие сцены, которые могли появиться после объединения
         merged_scenes = [(start, end) for start, end in merged_scenes

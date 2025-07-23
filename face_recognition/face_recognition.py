@@ -32,6 +32,11 @@ class FaceRecognition:
         self.names = []
         self.data = pd.DataFrame(columns = ['desc'])
         self.datatable = pd.DataFrame(columns=['name', 'path'])
+        self.local_dataset = pd.DataFrame(columns=['name', 'desc'])
+
+    #Функция для добавления дескриптора лица в локальный датасет
+    def add_face_desc(self, desc, name):
+        self.local_dataset.loc[len(self.local_dataset)] = [name, desc]
 
     #Функция загрузки датасета
     def load_dataset(self, tomemory = False):
@@ -139,6 +144,79 @@ class FaceRecognition:
                 img2 = dlib.load_rgb_image(script_dir + '/../face_dataset/' + path)
                 img2_desc = self.face_descriptor(img2)
             result,score = self.face_compare_w_desc(img1_desc, img2_desc)
+            if result:
+                endtm = time.time()
+                logging.debug(f'time: {endtm-starttm},distance: {score}')
+                return actor['name']
+        return 'Unknown'
+
+    #Функция поиска имени актера по дескриптору лица
+    def find_name_desc(self, desc):
+        starttm = time.time()
+        img1_desc = desc
+        #Предварительный поиск
+        #Сначала ищем в локальном датасете дескрипторов лиц
+        candidates = []
+        if len(self.local_dataset) != 0:
+            for name in self.local_dataset['name'].unique():
+                index = self.local_dataset[self.local_dataset['name']== name].iloc[0].name
+                img2_desc = self.local_dataset['desc'][index]
+                result, score = self.face_compare_w_desc(img1_desc, img2_desc)
+                if result:
+                    endtm = time.time()
+                    logging.debug(f'time: {endtm-starttm},distance: {score}')
+                    return self.local_dataset['name'][0]
+                elif score < 0.5:
+                    candidates = candidates +[name]
+            for index,actor in self.local_dataset[self.local_dataset['name'].isin(candidates)].iterrows():
+                img2_desc = actor['desc']
+                result,score = self.face_compare_w_desc(img1_desc, img2_desc)
+                if result:
+                    endtm = time.time()
+                    logging.debug(f'time: {endtm-starttm},distance: {score}')
+                    return actor['name']
+        #Если не нашли в локальном датасете, то ищем в глобальном датасете
+        candidates = []
+        for name in self.names:
+            index = self.datatable[self.datatable['name']== name].iloc[0].name
+            if len(self.data) != 0:
+                img2_desc = self.data['desc'][index]
+            else:
+                path = self.datatable['path'][index]
+                img2 = dlib.load_rgb_image(script_dir + '/../face_dataset/' + path)
+                img2_desc = self.face_descriptor(img2)
+            score = self.dist_euqlid(img1_desc, img2_desc)
+            logging.debug(f'"{name}",distance: {score}')
+            if score == None:
+                continue
+            if score < 0.7:
+                candidates = candidates +[name]
+                if score < self.recognition_value:
+                    endtm = time.time()
+                    #print(f'time: {endtm-starttm},distance: {score}')
+                    return name
+        logging.debug(f'Кандидаты на тщательный поиск: {candidates}')
+        for index,actor in self.datatable[self.datatable['name'].isin(candidates)].iterrows():
+            #print(index)
+            if len(self.data) != 0:
+                img2_desc = self.data['desc'][index]
+            else:
+                path = actor['path']
+                img2 = dlib.load_rgb_image(script_dir + '/../face_dataset/' + path)
+                img2_desc = self.face_descriptor(img2)
+            result,score = self.face_compare_w_desc(img1_desc, img2_desc)
+            if result:
+                endtm = time.time()
+                logging.debug(f'time: {endtm-starttm},distance: {score}')
+                return actor['name']
+        return 'Unknown'
+
+    #Функция поиска имени актера по дескриптору лица в локальной базе
+    def find_name_local_desc(self, desc):
+        starttm = time.time()
+        img1_desc = desc
+        for actor, desc in self.local_dataset.iterrows():
+            result,score = self.face_compare_w_desc(img1_desc, desc)
             if result:
                 endtm = time.time()
                 logging.debug(f'time: {endtm-starttm},distance: {score}')
