@@ -39,11 +39,11 @@ class FaceRecognition:
         self.local_dataset.loc[len(self.local_dataset)] = [name, desc]
 
     #Функция загрузки датасета
-    def load_dataset(self, tomemory = False):
+    def load_dataset(self, tomemory = False, force_update = False):
         logging.info('Подготовка данных')
 
         if os.path.exists(script_dir + '/../face_dataset'):
-            if os.path.exists(script_dir + '/../face_dataframe/table.parquet'):
+            if os.path.exists(script_dir + '/../face_dataframe/table.parquet') and not force_update:
                 self.datatable = pd.read_parquet(script_dir + '/../face_dataframe/table.parquet')
                 self.names = self.datatable['name'].unique()
                 if tomemory:
@@ -61,6 +61,7 @@ class FaceRecognition:
                 logging.info('Создание таблицы для работы с данными')
                 for path_dir in sorted(os.listdir(path=script_dir + '/../face_dataset')):
                     path = script_dir + '/../face_dataset/' + path_dir + '/'
+                    logger.info(f'Обработка папки: {path_dir}')
                     for path_image in tqdm.tqdm(sorted(os.listdir(path=path))):
                         if tomemory:
                             image = dlib.load_rgb_image(path + path_image)

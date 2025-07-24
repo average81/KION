@@ -11,6 +11,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="парсер параметров")
     parser.add_argument('--video', type=str, required=True, help='входной файл видео')
     parser.add_argument('--output_dir', type=str, required=False, help='директория для сохранения результата работы')
+    parser.add_argument('-update_base', action='store_true', required=False, help='принудительное обновление датасета лиц')
     # Получаем аргумент из командной строки
     args = parser.parse_args()
     #Подготовка модулей
@@ -21,7 +22,7 @@ if __name__ == '__main__':
         if not os.path.exists(args.output_dir):
             os.makedirs(args.output_dir)
     #processor = OptimizedVideoProcessor()
-    processor = ComplexVideoProcessor()
+    processor = ComplexVideoProcessor(force_update = args.update_base)
     #временно
     file = 'out.mp4'
     #processor.process_video(args.video, args.output_dir + "/" + file)

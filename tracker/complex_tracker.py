@@ -35,11 +35,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class ComplexVideoProcessor:
-    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod'):
+    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod', force_update = False):
         self.model = YOLO(model_path)
         self.color_cache = {}  # Кэш цветов для ID
         self.face_recognition = FaceRecognition(detector,recognition_value = 0.4)
-        self.face_recognition.load_dataset(tomemory = True)
+        self.face_recognition.load_dataset(tomemory = True, force_update = force_update)
         self.tracker = OptimizedBoundingBoxTracker()
         self.shapes_list = []   #список датафреймов по шотам с треками людей
 
@@ -50,7 +50,7 @@ class ComplexVideoProcessor:
         self.names = {}
         #window = dlib.image_window()
         shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_desc'])
-        for frame_count in tqdm.tqdm(range(clip.n_frames)):
+        for frame_count in range(clip.n_frames):
             frame = clip.get_frame(frame_count/clip.fps)
 
             # Выполняем трекинг с YOLOv8
@@ -125,7 +125,7 @@ class ComplexVideoProcessor:
         self.names = {}
         #window = dlib.image_window()
         shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_desc', 'name'])
-        for frame_count in tqdm.tqdm(range(clip.n_frames)):
+        for frame_count in range(clip.n_frames):
             frame = clip.get_frame(frame_count/clip.fps)
             #Берем данные, полученные pretracker
             detections = self.shapes_list[clipnum].loc[self.shapes_list[clipnum]['frame'] == frame_count]
@@ -143,7 +143,7 @@ class ComplexVideoProcessor:
                     x2 = shape[2]
                     y2 = shape[3]
                     obj_id = detection['id']
-                    face = detection['face_shape']
+                    face = detection['face_desc']
 
                     if obj_id not in self.names:
                         #выбираем изображение и меняем BGR на RGB
@@ -170,7 +170,7 @@ class ComplexVideoProcessor:
                 name = str(detection['id'])
             shapes_df['name'].loc[ind] = name
 
-        for frame_count in tqdm.tqdm(range(clip.n_frames)):
+        for frame_count in range(clip.n_frames):
             # Отрисовка результатов
             frame = clip.get_frame(frame_count/clip.fps)[:,:,::-1]
             boxes = shapes_df[shapes_df['frame'] == frame_count]
@@ -221,7 +221,7 @@ class ComplexVideoProcessor:
         #Сохраняем шоты
         shorts_path = output_path + '/shorts'
         prefix = 'input_short_'
-        #self.save_scenes_as_videos(video_path, self.clip.fps, video_scenes, shorts_path, prefix)
+        self.save_scenes_as_videos(video_path, self.clip.fps, video_scenes, shorts_path, prefix)
         '''results_list = self.model.track(video_path, stream=True, persist=True, tracker="bytetrack.yaml", verbose=False)
         for ind,results in enumerate(results_list):
             if len(results) > 0:
@@ -233,12 +233,13 @@ class ComplexVideoProcessor:
         if merged_scenes:
             scene_path = output_path + '/scenes'
             prefix = 'input_scene_'
-            #self.save_scenes_as_videos(video_path, self.clip.fps, merged_scenes, scene_path,prefix)
+            self.save_scenes_as_videos(video_path, self.clip.fps, merged_scenes, scene_path,prefix)
 
         #обработка шотов
         if not os.path.exists(output_path + f'/shaped_shorts'):
             os.makedirs(output_path + f'/shaped_shorts')
-        for i, (start, end) in enumerate(video_scenes):
+        logger.info(f"Обработка шотов, 1 проход...")
+        for i, (start, end) in enumerate(tqdm.tqdm(video_scenes)):
             short_clip = self.clip.subclipped(start + 2/self.clip.fps, end)
             df = self.video_short_pretracker(short_clip, i)
             self.shapes_list.append(df)
@@ -246,7 +247,8 @@ class ComplexVideoProcessor:
         for name in self.face_recognition.local_dataset['name'].unique():
             if len(self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] == name]) < 10:
                 self.face_recognition.local_dataset = self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] != name]
-        for i, (start, end) in enumerate(video_scenes):
+        logger.info(f"Обработка шотов, 2 проход...")
+        for i, (start, end) in enumerate(tqdm.tqdm(video_scenes)):
             short_clip = self.clip.subclipped(start + 2/self.clip.fps, end)
             self.video_short_tracker(short_clip, output_path + f'/shaped_shorts/input_debug_{i}.mp4', i)
         self.clip.close()
