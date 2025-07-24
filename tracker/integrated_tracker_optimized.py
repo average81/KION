@@ -1,13 +1,11 @@
 import cv2
-import dlib
+import tqdm
 import numpy as np
-import torch
 from ultralytics import YOLO
 import pandas as pd
 from moviepy import VideoFileClip, AudioFileClip
 import os
 from collections import deque, defaultdict
-import time
 from typing import List, Tuple, Optional, Dict, Any
 import logging
 from face_recognition import FaceRecognition
@@ -37,7 +35,7 @@ class OptimizedBoundingBoxTracker:
         self._iou_cache = {}
         self._frame_cache_size = 100
         
-    def update(self, detections: List[Tuple], frame_num: int) -> List[Tuple]:
+    def update(self, detections: List[List], frame_num: int) -> List[List]:
         """Обновляет трекер с новыми детекциями"""
         self.current_frame = frame_num
         self._clear_old_cache()
@@ -61,7 +59,7 @@ class OptimizedBoundingBoxTracker:
         
         return self._get_all_boxes()
     
-    def _match_detections(self, detections: List[Tuple]) -> Tuple[List[Tuple], List[Tuple]]:
+    def _match_detections(self, detections: List[List]) -> Tuple[List[Tuple], List[List]]:
         """Сопоставляет детекции с существующими объектами используя IoU и расстояние (как в оригинале)"""
         if not self.objects:
             return [], detections
@@ -80,7 +78,7 @@ class OptimizedBoundingBoxTracker:
             for obj_id, obj in self.objects.items():
                 last_box = obj.get_last_box()
                 if last_box is not None:
-                    iou = self._calculate_iou(detection[:4], last_box)
+                    iou = self._calculate_iou(tuple(detection[:4]), tuple(last_box))
                     
                     # Вычисляем расстояние между центрами
                     last_center_x = (last_box[0] + last_box[2]) / 2
@@ -100,7 +98,7 @@ class OptimizedBoundingBoxTracker:
         
         return matched, unmatched
     
-    def _create_new_object(self, detection: Tuple, frame_num: int):
+    def _create_new_object(self, detection: List, frame_num: int):
         """Создает новый объект для отслеживания"""
         obj = TrackedObject(
             self.next_id, detection, frame_num, 
@@ -138,7 +136,7 @@ class OptimizedBoundingBoxTracker:
         for obj_id in expired_objects:
             del self.objects[obj_id]
     
-    def _get_all_boxes(self) -> List[Tuple]:
+    def _get_all_boxes(self) -> List[List]:
         """Возвращает все активные рамки"""
         active_boxes = []
         
@@ -158,7 +156,7 @@ class OptimizedBoundingBoxTracker:
                     logger.debug(f"🔄 Fallback для объекта {obj.object_id}")
                 
                 if box is not None:
-                    active_boxes.append((*box, conf, obj.object_id))
+                    active_boxes.append([*box, conf, obj.object_id])
                     logger.debug(f"✅ Объект {obj.object_id} отображается (интерполяция: {obj.is_interpolating})")
         
         return active_boxes
@@ -449,38 +447,116 @@ class OptimizedSceneDetector:
 class OptimizedVideoProcessor:
     """Оптимизированный процессор видео"""
     
-    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod'):
+    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod', force_update = False):
         self.model = YOLO(model_path)
         self.scene_detector = OptimizedSceneDetector()
         self.tracker = OptimizedBoundingBoxTracker()
         self.color_cache = {}  # Кэш цветов для ID
         self.face_recognition = FaceRecognition(detector,recognition_value = 0.45)
-        self.face_recognition.load_dataset(tomemory = True)
-        
-    def process_video(self, input_path: str, output_path: str):
+        self.face_recognition.load_dataset(tomemory = True, force_update = force_update)
+        self.shapes_list = []   #список датафреймов по шотам с треками людей
+
+
+    def video_short_tracker(self, clip, output_path: str, clipnum):
+        """Обрабатывает видео с детекцией и трекомингом объектов"""
+
+        logger.info(f"🎬 Начинаем обработку шота {clipnum}: {clip.n_frames} кадров, {clip.fps:.1f} FPS")
+        # Настройка видеозаписи
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, clip.fps, clip.size)
+
+        self.names = {}
+        #window = dlib.image_window()
+        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_desc', 'name'])
+        for frame_count in range(clip.n_frames):
+            frame = clip.get_frame(frame_count/clip.fps)
+            #Берем данные, полученные pretracker
+            detections = self.shapes_list[clipnum].loc[self.shapes_list[clipnum]['frame'] == frame_count]
+
+
+            # Обновление трекера
+            #tracked_boxes = self.tracker.update(detections, frame_count)
+            tracked_boxes = detections if len(detections) > 0 else []
+            # Обработка лиц
+            if len(tracked_boxes) > 0:
+                for ind,detection in tracked_boxes.iterrows():
+                    shape = detection['shape']
+                    x1 = shape[0]
+                    y1 = shape[1]
+                    x2 = shape[2]
+                    y2 = shape[3]
+                    obj_id = detection['id']
+                    face = detection['face_desc']
+
+                    if obj_id not in self.names:
+                        #выбираем изображение и меняем BGR на RGB
+                        human_img = np.array(frame[y1:y2, x1:x2], dtype=np.uint8)
+                        if face is None:
+                            name = 'Unknown'
+                        else:
+                            desc = self.face_recognition.facerec.compute_face_descriptor(human_img, face)
+                            name = self.face_recognition.find_name_desc(desc)
+                        #window.wait_for_keypress(' ')
+                        if name != "Unknown":
+                            self.names[obj_id] = name
+                            logging.info(f"👤 Обнаружено лицо для объекта {obj_id}: {self.names[obj_id]}")
+
+
+            #
+            if len(detections) > 0:
+                for ind,detection in tracked_boxes.iterrows():
+                    shapes_df.loc[len(shapes_df)] = detection
+        for ind,detection in shapes_df.iterrows():
+            if detection['id'] in self.names.keys():
+                name = self.names[detection['id']]
+            else:
+                name = str(detection['id'])
+            shapes_df['name'].loc[ind] = name
+
+        for frame_count in range(clip.n_frames):
+            # Отрисовка результатов
+            frame = clip.get_frame(frame_count/clip.fps)[:,:,::-1]
+            boxes = shapes_df[shapes_df['frame'] == frame_count]
+            processed_frame = self._draw_results(frame, boxes, frame_count)
+            # Запись кадра
+            out.write(processed_frame)
+
+        out.release()
+        #Сохраняем таблицу с треками
+        shapes_df = shapes_df.drop(columns=['face_desc'])
+        shapes_df.to_csv(output_path[:-4] + '_shapes.csv', index=False)
+        return
+    def process_video(self, video_path: str, output_path: str):
+        self.video_path = video_path
+        self.output_path = output_path if output_path else ""
+        if not os.path.exists(self.video_path):
+            logger.error(f"🚨 Видео не найдено: {self.video_path}")
+            return
+
         """Обрабатывает видео с детекцией, трекингом и сменой сцен"""
-        cap = cv2.VideoCapture(input_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.clip = VideoFileClip(self.video_path)
+        fps = self.clip.fps
+        width = self.clip.size[0]
+        height = self.clip.size[1]
+        total_frames = self.clip.n_frames
         
         # Настройка видеозаписи
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
+        shorts_path = output_path + '/shorts'
+        if not os.path.exists(shorts_path):
+            os.makedirs(shorts_path)
+        prefix = 'input_short_'
+        short_path = os.path.join(shorts_path, f"{prefix}1.mp4")
+
         logger.info(f"🎬 Начинаем обработку видео: {total_frames} кадров, {fps:.1f} FPS")
-        
+        video_scenes = []   #Начало и конец сцен в секундах
+        scene_start_frame = 0
         frame_count = 0
-        last_scene_change = 0
         self.names = {}
-        window = dlib.image_window()
-        shapes_df = pd.DataFrame(columns=['id', 'y', 'shape'])
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
+        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_desc'])
+        while frame_count < total_frames:
+            frame = self.clip.get_frame(frame_count/self.clip.fps)
+
             frame_count += 1
             
             # Детекция смены сцены
@@ -488,7 +564,21 @@ class OptimizedVideoProcessor:
             if scene_changed:
                 self.names = {}  # Сброс имен после смены сцены
                 self.tracker.reset()
-                last_scene_change = frame_count
+                scene = (scene_start_frame/fps, frame_count/fps)
+                video_scenes.append(scene)
+                short_path = os.path.join(shorts_path, f"{prefix}{len(video_scenes)}.mp4")
+                clip = VideoFileClip(video_path).subclipped(scene[0] + 1/2/fps, scene[1] - 1/3/fps)
+                clip.write_videofile(short_path, codec='libx264', audio_codec='aac')
+                clip.close()
+                logger.info(f"Сохранена сцена {len(video_scenes)} в {short_path}")
+                scene_start_frame = frame_count
+                self.shapes_list.append(shapes_df)
+                shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_desc'])
+                # Присоединение аудио
+                #self._attach_audio(f"{prefix}{len(video_scenes) + 1}tmp.mp4", f"{prefix}{len(video_scenes) + 1}.mp4")
+                #out.release()
+                #output_path = os.path.join(shorts_path, f"{prefix}{len(video_scenes) + 1}tmp.mp4")
+                #out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
             # YOLO детекция (каждый кадр)
             results = self.model(frame, conf=0.6, iou=0.35, max_det=15, verbose=False)
 
@@ -501,11 +591,10 @@ class OptimizedVideoProcessor:
                         if box.cls == 0:  # класс "person"
                             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                             conf = box.conf[0].cpu().numpy()
-                            detections.append((x1, y1, x2, y2, conf))
+                            detections.append([x1, y1, x2, y2, conf])
             
             # Удаление дубликатов
             detections = self._filter_duplicates(detections)
-            
             # Обновление трекера
             tracked_boxes = self.tracker.update(detections, frame_count)
             # Обработка лиц
@@ -521,44 +610,49 @@ class OptimizedVideoProcessor:
                     if obj_id not in self.names:
                         #выбираем изображение и меняем BGR на RGB
                         human_img = np.array(frame[y1:y2, x1:x2, ::-1], dtype=np.uint8)
-
-                        window.set_image(human_img)
-                        #Сохраняем изображение
-                        #if human_img is not None:
-                        #    human_img = cv2.cvtColor(human_img, cv2.COLOR_BGR2RGB)
-                        #    cv2.imwrite(f"{time.time()}-{obj_id}.jpg", human_img)
-                        name = self.face_recognition.find_name(human_img)
-                        window.wait_for_keypress(' ')
-                        if name != "Unknown":
-                            self.names[obj_id] = name
-                            window.set_title(f"{name} ({obj_id})")
-                            logging.info(f"👤 Обнаружено лицо для объекта {obj_id}: {self.names[obj_id]}")
+                        face = self.face_recognition.detector.shape_of_image(human_img)
+                        if face is None:
+                            description = None
                         else:
-                            window.set_title('Unknown')
-            # Отрисовка результатов
-            processed_frame = self._draw_results(frame, tracked_boxes, frame_count, fps)
-            
-            # Запись кадра
-            out.write(processed_frame)
-            
-            # Прогресс
-            if frame_count % 100 == 0:
-                progress = (frame_count / total_frames) * 100
-                logger.info(f"📈 Прогресс: {progress:.1f}% ({frame_count}/{total_frames})")
-        
-        # Завершение
-        cap.release()
-        out.release()
+                            description = self.face_recognition.facerec.compute_face_descriptor(human_img, face)
+                        box.append(face)
+                        if description is not None:
+                            name = self.face_recognition.find_name_desc(description)
+                            if name != "Unknown":
+                                if len(self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] == name]) < 10:
+                                    #print(len(self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] == name]))
+                                    self.face_recognition.add_face_desc(description, name)
+                                    logging.info(f"👤 Сохранено лицо для объекта {name}")
+            # Сохраняем информацию о треках
+            if len(tracked_boxes) > 0:
+                for det in tracked_boxes:
+                    x1 = int(det[0])
+                    y1 = int(det[1])
+                    x2 = int(det[2])
+                    y2 = int(det[3])
+                    track_id = det[5]
+                    shapes_df.loc[len(shapes_df)] = [int(track_id),frame_count-scene_start_frame,(x1, y1, x2, y2),det[6]]
+
+        #Удаляем из локального датасета записи, с именами, которые опознаны менее, чем в 10 кадрах
+        for name in self.face_recognition.local_dataset['name'].unique():
+            if len(self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] == name]) < 10:
+                self.face_recognition.local_dataset = self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] != name]
+        logger.info(f"Обработка шотов, 2 проход...")
+        if not os.path.exists(output_path + f'/shaped_shorts'):
+            os.makedirs(output_path + f'/shaped_shorts')
+        for i, (start, end) in enumerate(tqdm.tqdm(video_scenes)):
+            short_clip = self.clip.subclipped(start, end)
+            self.video_short_tracker(short_clip, output_path + f'/shaped_shorts/input_debug_{i}.mp4', i)
+        self.clip.close()
         
         # Сохранение анализа
         self.scene_detector.save_analysis(output_path + "/scene_analysis_optimized.csv", fps)
         
-        # Присоединение аудио
-        self._attach_audio(input_path, output_path)
+
         
         logger.info("✅ Обработка завершена!")
     
-    def _filter_duplicates(self, detections: List[Tuple]) -> List[Tuple]:
+    def _filter_duplicates(self, detections: List[List]) -> List[List]:
         """Фильтрует дублирующиеся детекции"""
         if len(detections) <= 1:
             return detections
@@ -619,45 +713,36 @@ class OptimizedVideoProcessor:
         
         return self.color_cache[obj_id]
     
-    def _draw_results(self, frame: np.ndarray, tracked_boxes: List[Tuple], 
-                     frame_num: int, fps: float) -> np.ndarray:
+    def _draw_results(self, frame: np.ndarray, tracked_boxes: pd.DataFrame,
+                     frame_num: int) -> np.ndarray:
         """Отрисовывает результаты на кадре"""
         result_frame = frame.copy()
         
         # Отладочная информация
         if frame_num % 30 == 0:  # Каждые 30 кадров
             logger.info(f"🎨 Отрисовка: {len(tracked_boxes)} объектов в кадре {frame_num}")
-        
+
         # Отрисовка рамок с разноцветными ID
-        for box in tracked_boxes:
-            x1, y1, x2, y2, conf, obj_id = box
+        for row in tracked_boxes.itertuples():
+            _,obj_id,_,shape,_,_ = row
+            x1, y1, x2, y2 = shape
+            if obj_id == None:
+                continue
             color = self._get_color_for_id(obj_id)
-            
+
             # Рамка
             cv2.rectangle(result_frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 3)
-            
+
             # Фон для текста
             #text = f"ID: {obj_id}"
             text = self.names[obj_id] if obj_id in self.names else f"ID: {obj_id}"
             (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-            cv2.rectangle(result_frame, (int(x1), int(y1)-text_height+15),
-                         (int(x1)+text_width+10, int(y1)), color, -1)
-            
+            cv2.rectangle(result_frame, (int(x1), int(y1)),
+                          (int(x1)+text_width+10, int(y1)+text_height+10), color, -1)
+
             # Текст ID
             cv2.putText(result_frame, text, (int(x1)+5, int(y1)+20),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            
-            # Показываем уверенность
-            conf_text = f"{conf:.2f}"
-            cv2.putText(result_frame, conf_text, (int(x1), int(y2)-5),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-        
-        # Отображение номера шота
-        current_scene = self.scene_detector.get_current_scene(frame_num)
-        cv2.putText(result_frame, f"Shot {current_scene}", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 3)
-        cv2.putText(result_frame, f"Shot {current_scene}", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
         return result_frame
     
@@ -687,7 +772,7 @@ class OptimizedVideoProcessor:
         
         return intersection / union if union > 0 else 0.0
     
-    def _attach_audio(self, input_path: str, output_path: str):
+    def _attach_audio(self, input_path: str, output_path: str, scene):
         """Присоединяет аудио к обработанному видео"""
         try:
             # Временный файл без аудио
@@ -695,7 +780,7 @@ class OptimizedVideoProcessor:
             os.rename(output_path, temp_path)
             
             # Присоединение аудио
-            video = VideoFileClip(temp_path)
+            video = VideoFileClip(temp_path).subclipped(scene[0], scene[1])
             audio = VideoFileClip(input_path).audio
             
             if audio is not None:
