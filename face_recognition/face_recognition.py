@@ -229,32 +229,18 @@ class FaceRecognition:
         #path - путь к папке с фото
         starttm = time.time()
         names = {}  # Словарь с именами и дескрипторами лиц
-        if len(images) == 0:
-            images = {}
-            if path != None:
-                for path_dir in sorted(os.listdir(path=path)):
-                    path = path + path_dir + '/'
-                    for path_image in sorted(os.listdir(path=path)):
-                        image = dlib.load_rgb_image(path + path_image)
-                        images[path_dir] = image
-            else:
-                df = pd.DataFrame(columns=['id','name'])
-                logging.info('Wrong parameters for the face recognition')
-                return df
-        for id in images:
-            for img in images[id]:
-                name = self.find_name(img)
-                names[id] = name
+        #img_list = list(images.values())
+        shapes_list = self.detector.shape_of_images(images)
+        desc_list = self.facerec.compute_face_descriptor(images, shapes_list)
+        names = []
+        for id in range(len(images)):
+            #print(desc_list[id].pop())
+            name = self.find_name_desc(desc_list[id].pop(0))
+            names.append(name)
         endtm = time.time()
         logging.info(f' Faces recognition time: {endtm-starttm}')
         logging.info(names)
-        df = pd.DataFrame(columns=['id','name'])
-        for id,name in names.items():
-            df.loc[len(df)] = [id,name]
-        if not os.path.exists(script_dir + '/../tmp'):
-            os.mkdir(script_dir + '/../tmp')
-        df.to_csv(script_dir + '/../tmp/names.csv', index=True)
-        return df
+        return names
 
 
 def plot_img(img1, img2):
@@ -285,6 +271,12 @@ if __name__ == '__main__':
     img2_id = facefnd.datatable[facefnd.datatable['name']=='Tom Cruise'].iloc[0].name
     print(img2_id)
     img2_desc = facefnd.data['desc'][img2_id]
-    images = {'0':[img1]}
+    start_time = time.time()
+    images = [img1,img1,img1,img1,img1,img1,img1,img1,img1,img1]
+    for i in range(10):
+        facefnd.find_names(images)
+
+    end_time = time.time()
     print(facefnd.find_names(images))
+    print(end_time-start_time)
     print(facefnd.find_name(img1))

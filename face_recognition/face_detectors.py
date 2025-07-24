@@ -52,6 +52,25 @@ class MmodFaceDetector:
                 score = d.confidence
                 shape = self.predictor(img, d.rect)
         return shape
+    #Функция получения списка рамок лиц
+
+    def shape_of_images(self,img_list):
+        resize = 1
+        dets_list = self.detector(img_list, 1)
+        shapes = []
+        shape = None
+        for i in range(len(img_list)):
+            shape_list = dlib.full_object_detections()
+            score = 0
+            for k, d in enumerate(dets_list[i]):
+                #print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
+                #    k, d.rect.left(), d.rect.top(), d.rect.right(), d.rect.bottom()))
+                if d.confidence > score:
+                    score = d.confidence
+                    shape = self.predictor(img_list[i], d.rect)
+            shape_list.append(shape)
+            shapes.append(shape_list)
+        return shapes
 """
 class FaceNetDetector:
     def __init__(self):

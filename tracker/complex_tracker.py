@@ -1,7 +1,6 @@
 import os
 import cv2
 import pandas as pd
-import dlib
 import tqdm
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any
@@ -50,12 +49,12 @@ class ComplexVideoProcessor:
 
         self.names = {}
         #window = dlib.image_window()
-        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_shape'])
+        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_desc'])
         for frame_count in tqdm.tqdm(range(clip.n_frames)):
             frame = clip.get_frame(frame_count/clip.fps)
 
             # Выполняем трекинг с YOLOv8
-            results = self.model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False)
+            results = self.model.track(frame, stream=True, persist=True, tracker="botsort.yaml", verbose=False)
 
             # Фильтрация детекций людей
             detections = []
@@ -112,6 +111,7 @@ class ComplexVideoProcessor:
                     y2 = int(det[3])
                     track_id = det[5]
                     shapes_df.loc[len(shapes_df)] = [int(track_id),frame_count,(x1, y1, x2, y2),det[6]]
+
         return shapes_df
 
     def video_short_tracker(self, clip, output_path: str, clipnum):
@@ -124,7 +124,7 @@ class ComplexVideoProcessor:
 
         self.names = {}
         #window = dlib.image_window()
-        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_shape'])
+        shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_desc', 'name'])
         for frame_count in tqdm.tqdm(range(clip.n_frames)):
             frame = clip.get_frame(frame_count/clip.fps)
             #Берем данные, полученные pretracker
@@ -163,17 +163,25 @@ class ComplexVideoProcessor:
             if len(detections) > 0:
                 for ind,detection in tracked_boxes.iterrows():
                     shapes_df.loc[len(shapes_df)] = detection
+        for ind,detection in shapes_df.iterrows():
+            if len(self.names) >= detection['id']:
+                name = self.names[detection['id']]
+            else:
+                name = str(detection['id'])
+            shapes_df['name'].loc[ind] = name
 
         for frame_count in tqdm.tqdm(range(clip.n_frames)):
             # Отрисовка результатов
             frame = clip.get_frame(frame_count/clip.fps)[:,:,::-1]
             boxes = shapes_df[shapes_df['frame'] == frame_count]
-            processed_frame = self._draw_results(frame, boxes, frame_count, clip.fps)
+            processed_frame = self._draw_results(frame, boxes, frame_count)
             # Запись кадра
             out.write(processed_frame)
 
         out.release()
-
+        #Сохраняем таблицу с треками
+        shapes_df = shapes_df.drop(columns=['face_desc'])
+        shapes_df.to_csv(output_path[:-4] + '_shapes.csv', index=False)
         return
 
     def process_video(self, video_path: str, output_path: str):
@@ -214,6 +222,13 @@ class ComplexVideoProcessor:
         shorts_path = output_path + '/shorts'
         prefix = 'input_short_'
         #self.save_scenes_as_videos(video_path, self.clip.fps, video_scenes, shorts_path, prefix)
+        '''results_list = self.model.track(video_path, stream=True, persist=True, tracker="bytetrack.yaml", verbose=False)
+        for ind,results in enumerate(results_list):
+            if len(results) > 0:
+                id = results[0].boxes.id
+            else:
+                id = None
+            print(ind,id)'''
         #Сохраняем сцены
         if merged_scenes:
             scene_path = output_path + '/scenes'
@@ -227,6 +242,10 @@ class ComplexVideoProcessor:
             short_clip = self.clip.subclipped(start + 2/self.clip.fps, end)
             df = self.video_short_pretracker(short_clip, i)
             self.shapes_list.append(df)
+        #Удаляем из локального датасета записи, с именами, которые опознаны менее, чем в 10 кадрах
+        for name in self.face_recognition.local_dataset['name'].unique():
+            if len(self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] == name]) < 10:
+                self.face_recognition.local_dataset = self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] != name]
         for i, (start, end) in enumerate(video_scenes):
             short_clip = self.clip.subclipped(start + 2/self.clip.fps, end)
             self.video_short_tracker(short_clip, output_path + f'/shaped_shorts/input_debug_{i}.mp4', i)
@@ -410,17 +429,17 @@ class ComplexVideoProcessor:
         return merged_scenes
 
     def _draw_results(self, frame: np.ndarray, tracked_boxes: pd.DataFrame,
-                      frame_num: int, fps: float) -> np.ndarray:
+                      frame_num: int) -> np.ndarray:
         """Отрисовывает результаты на кадре"""
         result_frame = frame.copy()
 
         # Отладочная информация
         if frame_num % 30 == 0:  # Каждые 30 кадров
-            logger.info(f"🎨 Отрисовка: {len(tracked_boxes)} объектов в кадре {frame_num}")
+            logger.debug(f"🎨 Отрисовка: {len(tracked_boxes)} объектов в кадре {frame_num}")
 
         # Отрисовка рамок с разноцветными ID
         for row in tracked_boxes.itertuples():
-            _,obj_id,_,shape,_ = row
+            _,obj_id,_,shape,_,_ = row
             x1, y1, x2, y2 = shape
             if obj_id == None:
                 continue
@@ -486,7 +505,8 @@ class ComplexVideoProcessor:
 def main():
     """Главная функция"""
     processor = ComplexVideoProcessor()
-    df = processor.video_short_tracker("C:/Users/above/IdeaProjects/video/Video_Samples/in2.mp4", "", "", "output_video_optimized.mp4")
+    df = processor.process_video("C:/Users/above/IdeaProjects/video/Video_Samples/in2.mp4",
+                                 "C:/Users/above/IdeaProjects/video/Video_SamplesC:/Users/above/IdeaProjects/video/Video_Samples/video/Video_Samples/out")
     print(df)
 
 if __name__ == "__main__":
