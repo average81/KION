@@ -194,8 +194,6 @@ photos/
 
 
 .venv_py39/
-video_tracker_shots_lib/
-video_tracker_shots_v2/
 video_tracker_lib/
 test_library.py
 test_shot_7_debug.py
@@ -205,3 +203,9 @@ tracker/__init__.py
 tracker/integrated_tracker_optimized.py
 tracker/tracking_video_objects.py
 yolov8n.pt_new
+video_tracker_shots_lib/__init__.py
+video_tracker_shots_lib/optimized_tracker.py
+video_tracker_shots_lib/README.md
+video_tracker_shots_lib/requirements.txt
+video_tracker_shots_lib/shot_processor.py
+video_tracker_shots_lib/shot_tracker.py
