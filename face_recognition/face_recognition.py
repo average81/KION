@@ -16,6 +16,9 @@ face_detectors = {
     'mmod': MmodFaceDetector,
 }
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 #Класс работы с изображениями
 class FaceRecognition:
