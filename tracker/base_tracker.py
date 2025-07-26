@@ -3,6 +3,7 @@ import cv2
 import pandas as pd
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any
+import tqdm
 
 # Видео обработка
 from moviepy import VideoFileClip
@@ -23,8 +24,19 @@ from statistics import mean
 import spacy
 import subprocess
 
-TIME_GAP_THRESHOLD = 3.0  # Максимальный допустимый разрыв между репликами
-SIMILARITY_THRESHOLD = 0.55  # Порог семантической схожести
+WEIGHTS = {
+    'video': 0.5,               # вес для видео-анализа (ContentDetector)
+    'audio': 0.3,               # вес для аудио-анализа
+    'subtitles': 0.2,           # вес для анализа субтитров
+    'min_duration': 10.0,        # минимальная длительность сцены (сек)
+    'max_duration': 600.0,      # максимальная длительность сцены (сек)
+    'rms_threshold': 0.3,       # порог для RMS энергии в аудио
+    'centroid_threshold': 0.4,  # порог для спектрального центроида
+    'sub_min_duration': 10.0,   # мин. длительность сцены по субтитрам
+    'sub_time_gap': 3.0,        # макс. разрыв между репликами (сек)
+    'sub_similarity': 0.55,     # порог семантической схожести текста
+}
+
 
 @dataclass
 class SubtitleLine:
@@ -43,16 +55,14 @@ logger = logging.getLogger(__name__)
 
 
 class BaseVideoProcessor:
-    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod', force_update = False, use_subtitles = False):
+    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod', force_update = False):
         self.model = YOLO(model_path)
         self.color_cache = {}  # Кэш цветов для ID
         self.face_recognition = FaceRecognition(detector,recognition_value = 0.4)
         self.face_recognition.load_dataset(tomemory = True, force_update = force_update)
         self.shapes_list = []   #список датафреймов по шотам с треками людей
-        if use_subtitles:
-            self.nlp = spacy.load("ru_core_news_md")
-        else:
-            self.nlp = None
+        self.nlp = spacy.load("ru_core_news_md")
+
 
     def video_short_pretracker(self, clip, clipnum):
         #Пустышка
@@ -222,35 +232,70 @@ class BaseVideoProcessor:
         current_scene = [0,0]
         num_video_scene = 0
         num_audio_scene = 0
-        while num_video_scene < len(video_scenes) and num_audio_scene < len(audio_scenes):
-            if audio_scenes[num_audio_scene][1] > video_scenes[num_video_scene][1]:
-                #конец видеосцены находится в аудиосцене - объединяем
-                current_scene[1] = video_scenes[num_video_scene][1]
-                num_video_scene += 1
-            elif audio_scenes[num_audio_scene][1] > video_scenes[num_video_scene][1] - overlap_threshold:
-                #конец видеосцены выходит за границу аудиосцены на допустимое время - объединяем и финализируем
-                current_scene[1] = video_scenes[num_video_scene][1]
-                num_video_scene += 1
-                num_audio_scene += 1
-                if current_scene[1] - current_scene[0] > min_scene_duration:
-                    merged_scenes.append([current_scene[0], current_scene[1]])
-                    current_scene = [current_scene[1] + 0.01,current_scene[1] + 0.01]
-            elif audio_scenes[num_audio_scene][1] >= video_scenes[num_video_scene][0] + overlap_threshold:
-                #Большая разница границ - объединяем
-                current_scene[1] = video_scenes[num_video_scene][1]
-                num_video_scene += 1
-                num_audio_scene += 1
-            elif current_scene[1] - current_scene[0] < min_scene_duration:
-                #Слишком короткая сцена - объединяем
-                current_scene[1] = video_scenes[num_video_scene][1]
-                num_video_scene += 1
-                if audio_scenes[num_audio_scene][1] < video_scenes[num_video_scene][0]:
+        num_subtitle_scene = 0
+        if len(audio_scenes) >0:
+            while num_video_scene < len(video_scenes) and num_audio_scene < len(audio_scenes):
+                if audio_scenes[num_audio_scene][1] > video_scenes[num_video_scene][1]:
+                    #конец видеосцены находится в аудиосцене - объединяем
+                    current_scene[1] = video_scenes[num_video_scene][1]
+                    num_video_scene += 1
+                elif audio_scenes[num_audio_scene][1] > video_scenes[num_video_scene][1] - overlap_threshold:
+                    #конец видеосцены выходит за границу аудиосцены на допустимое время - объединяем и финализируем
+                    current_scene[1] = video_scenes[num_video_scene][1]
+                    num_video_scene += 1
                     num_audio_scene += 1
-            else:
-                #Финализируем текущую сцену
-                merged_scenes.append([current_scene[0], current_scene[1]])
-                num_audio_scene += 1
-                current_scene = [current_scene[1] + 0.01,current_scene[1] + 0.01]
+                    if current_scene[1] - current_scene[0] > min_scene_duration:
+                        merged_scenes.append([current_scene[0], current_scene[1]])
+                        current_scene = [current_scene[1] + 0.01,current_scene[1] + 0.01]
+                elif audio_scenes[num_audio_scene][1] >= video_scenes[num_video_scene][0] + overlap_threshold:
+                    #Большая разница границ - объединяем
+                    current_scene[1] = video_scenes[num_video_scene][1]
+                    num_video_scene += 1
+                    num_audio_scene += 1
+                elif current_scene[1] - current_scene[0] < min_scene_duration:
+                    #Слишком короткая сцена - объединяем
+                    current_scene[1] = video_scenes[num_video_scene][1]
+                    num_video_scene += 1
+                    if audio_scenes[num_audio_scene][1] < video_scenes[num_video_scene][0]:
+                        num_audio_scene += 1
+                else:
+                    #Финализируем текущую сцену
+                    merged_scenes.append([current_scene[0], current_scene[1]])
+                    num_audio_scene += 1
+                    current_scene = [current_scene[1] + 0.01,current_scene[1] + 0.01]
+        else:
+            merged_scenes = video_scenes
+        if len(subtitle_scenes) > 0:
+            while num_video_scene < len(video_scenes) and num_subtitle_scene < len(subtitle_scenes):
+                if subtitle_scenes[num_subtitle_scene][1] > video_scenes[num_video_scene][1]:
+                    #конец видеосцены находится в аудиосцене - объединяем
+                    current_scene[1] = video_scenes[num_video_scene][1]
+                    num_video_scene += 1
+                elif subtitle_scenes[num_subtitle_scene][1] > video_scenes[num_video_scene][1] - overlap_threshold:
+                    #конец видеосцены выходит за границу аудиосцены на допустимое время - объединяем и финализируем
+                    current_scene[1] = video_scenes[num_video_scene][1]
+                    num_video_scene += 1
+                    num_subtitle_scene += 1
+                    if current_scene[1] - current_scene[0] > min_scene_duration:
+                        merged_scenes.append([current_scene[0], current_scene[1]])
+                        current_scene = [current_scene[1] + 0.01,current_scene[1] + 0.01]
+                elif subtitle_scenes[num_subtitle_scene][1] >= video_scenes[num_video_scene][0] + overlap_threshold:
+                    #Большая разница границ - объединяем
+                    current_scene[1] = video_scenes[num_video_scene][1]
+                    num_video_scene += 1
+                    num_subtitle_scene += 1
+                elif current_scene[1] - current_scene[0] < min_scene_duration:
+                    #Слишком короткая сцена - объединяем
+                    current_scene[1] = video_scenes[num_video_scene][1]
+                    num_video_scene += 1
+                    if subtitle_scenes[num_subtitle_scene][1] < video_scenes[num_video_scene][0]:
+                        num_subtitle_scene += 1
+                else:
+                    #Финализируем текущую сцену
+                    merged_scenes.append([current_scene[0], current_scene[1]])
+                    num_subtitle_scene += 1
+                    current_scene = [current_scene[1] + 0.01,current_scene[1] + 0.01]
+
         merged_scenes.append([current_scene[0], current_scene[1]])
         #Последняя сцена
         if current_scene[1] < video_scenes[-1][1]:
@@ -356,11 +401,11 @@ class BaseVideoProcessor:
             with open(file_path, 'r', encoding='cp1251') as file:
                 return file.read()
 
-    def parse_srt(self, srt_text: str) -> List[SubtitleLine]:
+    def parse_srt(self,srt_text: str) -> List[SubtitleLine]:
         subtitles = []
         blocks = re.split(r'\n\s*\n', srt_text.strip())
 
-        for block in blocks:
+        for block in tqdm.tqdm(blocks):
             lines = block.strip().split('\n')
             if len(lines) < 3:
                 continue
@@ -402,32 +447,9 @@ class BaseVideoProcessor:
 
         return total_duration, avg_similarity
 
-    def should_merge_scenes(self,prev_scene: List[SubtitleLine], current_scene: List[SubtitleLine],
-                            min_scene_duration, max_scene_duration) -> bool:
-        """Определяет, нужно ли объединять сцены"""
-        if not prev_scene or not current_scene:
-            return False
 
 
-        # Проверяем временной промежуток между сценами
-        time_gap = current_scene[0].start - prev_scene[-1].end
-
-        # Проверяем схожесть последней реплики предыдущей сцены и первой текущей
-        similarity = prev_scene[-1].doc.similarity(current_scene[0].doc)
-
-        # Вычисляем общую длительность объединенной сцены
-        merged_duration = current_scene[-1].end - prev_scene[0].start
-
-        # Объединяем, если:
-        # 1. Небольшой временной разрыв И хорошая схожесть
-        # 2. ИЛИ если одна из сцен слишком короткая
-        # 3. И при этом объединенная сцена не станет слишком длинной
-        return ((time_gap <= TIME_GAP_THRESHOLD and similarity >= SIMILARITY_THRESHOLD) or
-                any(self.calculate_scene_metrics(s)[0] < min_scene_duration for s in [prev_scene, current_scene])) and \
-            merged_duration <= max_scene_duration
-
-    def group_into_scenes(self, subtitles: List[SubtitleLine]) -> List[Tuple[float, float]]:
-        """Группирует субтитры в сцены и возвращает список кортежей (start, end)"""
+    def group_into_scenes(self, subtitles: List[SubtitleLine]) -> List[List[SubtitleLine]]:
         if not subtitles:
             return []
 
@@ -439,7 +461,7 @@ class BaseVideoProcessor:
             time_gap = curr_sub.start - prev_sub.end
             similarity = prev_sub.doc.similarity(curr_sub.doc) if prev_sub.doc and curr_sub.doc else 0
 
-            if time_gap > TIME_GAP_THRESHOLD or similarity < SIMILARITY_THRESHOLD:
+            if time_gap > WEIGHTS['sub_time_gap'] or similarity < WEIGHTS['sub_similarity']:
                 initial_scenes.append(current_scene)
                 current_scene = [curr_sub]
             else:
@@ -460,14 +482,29 @@ class BaseVideoProcessor:
             else:
                 merged_scenes.append(scene)
 
-        # Преобразуем в список кортежей (start, end) для совместимости со вторым кодом
-        scene_boundaries = []
-        for scene in merged_scenes:
-            scene_start = scene[0].start
-            scene_end = scene[-1].end
-            scene_boundaries.append((scene_start, scene_end))
+        return merged_scenes
 
-        return scene_boundaries
+    def should_merge_scenes(self, prev_scene: List[SubtitleLine], current_scene: List[SubtitleLine]) -> bool:
+        """Определяет, нужно ли объединять сцены"""
+        if not prev_scene or not current_scene:
+            return False
+
+        # Проверяем временной промежуток между сценами
+        time_gap = current_scene[0].start - prev_scene[-1].end
+
+        # Проверяем схожесть последней реплики предыдущей сцены и первой текущей
+        similarity = prev_scene[-1].doc.similarity(current_scene[0].doc)
+
+        # Вычисляем общую длительность объединенной сцены
+        merged_duration = current_scene[-1].end - prev_scene[0].start
+
+        # Объединяем, если:
+        # 1. Небольшой временной разрыв И хорошая схожесть
+        # 2. ИЛИ если одна из сцен слишком короткая
+        # 3. И при этом объединенная сцена не станет слишком длинной
+        return ((time_gap <= WEIGHTS['sub_time_gap'] and similarity >= WEIGHTS['sub_similarity']) or
+                any(self.calculate_scene_metrics(s)[0] < WEIGHTS['min_duration'] for s in [prev_scene, current_scene])) and \
+            merged_duration <= WEIGHTS['max_duration']
 
     def prepare_subtitles_for_final(subtitles: List[SubtitleLine]) -> List[dict]:
         """Подготавливает субтитры для передачи в final_scene_segmentation"""
