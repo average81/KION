@@ -488,6 +488,10 @@ class OptimizedVideoProcessor(BaseVideoProcessor):
         frame_count = 0
         self.names = {}
         shapes_df = pd.DataFrame(columns=['id', 'frame', 'shape', 'face_desc'])
+        #Обработка субтитров
+        subtitles_path = video_path[:-4] + '.srt'
+        subtitles_scenes = self.analyze_subtitles(subtitles_path, video_path)
+
         while frame_count < total_frames:
             frame = self.clip.get_frame(frame_count/self.clip.fps)
 
@@ -598,10 +602,8 @@ class OptimizedVideoProcessor(BaseVideoProcessor):
                 logger.info(f"Сцена {i+1}: {start:.2f} - {end:.2f} сек")
             # Объединяем сцены с новыми параметрами
             merged_scenes = self.merge_scenes(video_scenes, audio_scenes,
-                                              video_weight=video_weight,
-                                              audio_weight=audio_weight,
-                                              min_scene_duration=min_duration,
-                                              max_scene_duration=max_duration)
+                                              subtitles_scenes,
+                                              min_scene_duration=min_duration)
             logger.info(f"Обнаружено {len(merged_scenes)} сцен после улучшенного объединения:")
             for i, (start, end) in enumerate(merged_scenes):
                 logger.info(f"Сцена {i+1}: {start:.2f} - {end:.2f} сек (длительность: {end-start:.2f} сек)")

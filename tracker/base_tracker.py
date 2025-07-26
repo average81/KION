@@ -6,9 +6,7 @@ from typing import List, Tuple, Optional, Dict, Any
 
 # Видео обработка
 from moviepy import VideoFileClip
-import scenedetect
-from scenedetect.detectors import ContentDetector
-from scenedetect.scene_manager import SceneManager
+
 
 # Аудио обработка
 import librosa
@@ -19,6 +17,22 @@ from ultralytics import YOLO
 
 from face_recognition import FaceRecognition
 
+import re
+from dataclasses import dataclass
+from statistics import mean
+import spacy
+import subprocess
+
+TIME_GAP_THRESHOLD = 3.0  # Максимальный допустимый разрыв между репликами
+SIMILARITY_THRESHOLD = 0.55  # Порог семантической схожести
+
+@dataclass
+class SubtitleLine:
+    index: int
+    start: float  # в секундах
+    end: float    # в секундах
+    text: str
+    doc: any = None  # spaCy Doc объект
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -29,12 +43,16 @@ logger = logging.getLogger(__name__)
 
 
 class BaseVideoProcessor:
-    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod', force_update = False):
+    def __init__(self, model_path: str = script_dir + "/yolov8n.pt", detector = 'mmod', force_update = False, use_subtitles = False):
         self.model = YOLO(model_path)
         self.color_cache = {}  # Кэш цветов для ID
         self.face_recognition = FaceRecognition(detector,recognition_value = 0.4)
         self.face_recognition.load_dataset(tomemory = True, force_update = force_update)
         self.shapes_list = []   #список датафреймов по шотам с треками людей
+        if use_subtitles:
+            self.nlp = spacy.load("ru_core_news_md")
+        else:
+            self.nlp = None
 
     def video_short_pretracker(self, clip, clipnum):
         #Пустышка
@@ -189,8 +207,8 @@ class BaseVideoProcessor:
         return scenes
 
     def merge_scenes(self,video_scenes, audio_scenes,
-                     video_weight=0.7, audio_weight=0.3,
-                     min_scene_duration=3.0, max_scene_duration=120.0,
+                     subtitle_scenes,
+                     min_scene_duration=3.0,
                      overlap_threshold=2.0):
         """
         Улучшенный алгоритм объединения сцен с учетом:
@@ -201,73 +219,6 @@ class BaseVideoProcessor:
         # Нормализуем и взвешиваем сцены
         weighted_scenes = []
         merged_scenes = []
-        '''
-        # Добавляем видео сцены с весом
-        for start, end in video_scenes:
-            duration = end - start
-            if duration >= 0:#min_scene_duration:
-                weighted_scenes.append({
-                    'start': start,
-                    'end': end,
-                    'weight': video_weight,
-                    'type': 'video'
-                })
-
-        # Добавляем аудио сцены с весом
-        for start, end in audio_scenes:
-            duration = end - start
-            if duration >= 0:#min_scene_duration:
-                weighted_scenes.append({
-                    'start': start,
-                    'end': end,
-                    'weight': audio_weight,
-                    'type': 'audio'
-                })
-
-        # Сортируем все сцены по времени начала
-        weighted_scenes.sort(key=lambda x: x['start'])
-
-        if not weighted_scenes:
-            return []
-
-        # Алгоритм интеллектуального объединения
-        
-        
-        current_scene = weighted_scenes[0].copy()
-        
-        for scene in weighted_scenes[1:]:
-            # Проверяем перекрытие или близость сцен
-            scene_overlap = (scene['start'] <= current_scene['end'] + overlap_threshold)
-
-            # Проверяем максимальную длительность
-            duration_exceeded = (scene['end'] - current_scene['start']) > max_scene_duration
-
-            # Если сцены пересекаются и не превышают максимальную длительность
-            if scene_overlap and not duration_exceeded:
-                # Объединяем сцены с учетом весов
-                if scene['type'] == 'video' and current_scene['type'] != 'video':
-                    current_scene['end'] = scene['end']
-                    current_scene['weight'] += scene['weight']
-                    current_scene['type'] = 'mixed'
-                elif scene['weight'] > current_scene['weight']:
-                    current_scene['end'] = scene['end']
-                    current_scene['weight'] += scene['weight']
-                    if scene['type'] != current_scene['type']:
-                        current_scene['type'] = 'mixed'
-                else:
-                    if scene['type'] != 'audio' and current_scene['type'] != 'audio':
-                        current_scene['end'] = max(current_scene['end'], scene['end'])
-                    elif scene['type'] != 'audio':
-                        current_scene['end'] = scene['end']
-                    elif current_scene['type'] != 'audio':
-                        current_scene['end'] = current_scene['end'], scene['end']
-                    current_scene['weight'] += scene['weight'] * 0.5  # меньший вес для расширения
-            else:
-                # Сохраняем текущую сцену и начинаем новую
-                if current_scene['end'] - current_scene['start'] >= min_scene_duration:
-                    merged_scenes.append((current_scene['start'], current_scene['end']))
-                current_scene = scene.copy()
-        '''
         current_scene = [0,0]
         num_video_scene = 0
         num_audio_scene = 0
@@ -396,3 +347,170 @@ class BaseVideoProcessor:
             self.color_cache[obj_id] = (b, g, r)  # BGR формат для OpenCV
 
         return self.color_cache[obj_id]
+
+    def read_srt_file(self,file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                return file.read()
+        except UnicodeDecodeError:
+            with open(file_path, 'r', encoding='cp1251') as file:
+                return file.read()
+
+    def parse_srt(self, srt_text: str) -> List[SubtitleLine]:
+        subtitles = []
+        blocks = re.split(r'\n\s*\n', srt_text.strip())
+
+        for block in blocks:
+            lines = block.strip().split('\n')
+            if len(lines) < 3:
+                continue
+
+            try:
+                index = int(lines[0])
+                time_match = re.match(r'(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})', lines[1])
+                if not time_match:
+                    continue
+
+                h1, m1, s1, ms1 = map(int, time_match.groups()[:4])
+                h2, m2, s2, ms2 = map(int, time_match.groups()[4:8])
+                start = h1 * 3600 + m1 * 60 + s1 + ms1 / 1000
+                end = h2 * 3600 + m2 * 60 + s2 + ms2 / 1000
+
+                text = '\n'.join(lines[2:])
+                doc = self.nlp(text)  # Анализируем текст с помощью spaCy
+                subtitles.append(SubtitleLine(index, start, end, text, doc))
+            except Exception as e:
+                print(f"Ошибка при обработке блока: {e}")
+                continue
+
+        return subtitles
+
+    def calculate_scene_metrics(self, scene: List[SubtitleLine]) -> Tuple[float, float]:
+        """Вычисляет длительность сцены и среднюю схожесть реплик"""
+        if not scene:
+            return 0.0, 0.0
+
+        durations = [sub.end - sub.start for sub in scene]
+        similarities = []
+
+        for i in range(1, len(scene)):
+            sim = scene[i-1].doc.similarity(scene[i].doc)
+            similarities.append(sim)
+
+        total_duration = scene[-1].end - scene[0].start
+        avg_similarity = mean(similarities) if similarities else 1.0
+
+        return total_duration, avg_similarity
+
+    def should_merge_scenes(self,prev_scene: List[SubtitleLine], current_scene: List[SubtitleLine],
+                            min_scene_duration, max_scene_duration) -> bool:
+        """Определяет, нужно ли объединять сцены"""
+        if not prev_scene or not current_scene:
+            return False
+
+
+        # Проверяем временной промежуток между сценами
+        time_gap = current_scene[0].start - prev_scene[-1].end
+
+        # Проверяем схожесть последней реплики предыдущей сцены и первой текущей
+        similarity = prev_scene[-1].doc.similarity(current_scene[0].doc)
+
+        # Вычисляем общую длительность объединенной сцены
+        merged_duration = current_scene[-1].end - prev_scene[0].start
+
+        # Объединяем, если:
+        # 1. Небольшой временной разрыв И хорошая схожесть
+        # 2. ИЛИ если одна из сцен слишком короткая
+        # 3. И при этом объединенная сцена не станет слишком длинной
+        return ((time_gap <= TIME_GAP_THRESHOLD and similarity >= SIMILARITY_THRESHOLD) or
+                any(self.calculate_scene_metrics(s)[0] < min_scene_duration for s in [prev_scene, current_scene])) and \
+            merged_duration <= max_scene_duration
+
+    def group_into_scenes(self, subtitles: List[SubtitleLine]) -> List[Tuple[float, float]]:
+        """Группирует субтитры в сцены и возвращает список кортежей (start, end)"""
+        if not subtitles:
+            return []
+
+        # Сначала группируем по простым правилам
+        initial_scenes = []
+        current_scene = [subtitles[0]]
+
+        for prev_sub, curr_sub in zip(subtitles, subtitles[1:]):
+            time_gap = curr_sub.start - prev_sub.end
+            similarity = prev_sub.doc.similarity(curr_sub.doc) if prev_sub.doc and curr_sub.doc else 0
+
+            if time_gap > TIME_GAP_THRESHOLD or similarity < SIMILARITY_THRESHOLD:
+                initial_scenes.append(current_scene)
+                current_scene = [curr_sub]
+            else:
+                current_scene.append(curr_sub)
+
+        initial_scenes.append(current_scene)
+
+        # Затем объединяем короткие или связанные сцены
+        merged_scenes = []
+
+        for scene in initial_scenes:
+            if not merged_scenes:
+                merged_scenes.append(scene)
+                continue
+
+            if self.should_merge_scenes(merged_scenes[-1], scene):
+                merged_scenes[-1].extend(scene)
+            else:
+                merged_scenes.append(scene)
+
+        # Преобразуем в список кортежей (start, end) для совместимости со вторым кодом
+        scene_boundaries = []
+        for scene in merged_scenes:
+            scene_start = scene[0].start
+            scene_end = scene[-1].end
+            scene_boundaries.append((scene_start, scene_end))
+
+        return scene_boundaries
+
+    def prepare_subtitles_for_final(subtitles: List[SubtitleLine]) -> List[dict]:
+        """Подготавливает субтитры для передачи в final_scene_segmentation"""
+        return [{'start': sub.start, 'end': sub.end, 'text': sub.text} for sub in subtitles]
+
+    def analyze_subtitles(self, subtitles_path = None, video_path = None):
+        subtitle_scenes, subtitles = None, None
+
+        if subtitles_path and os.path.exists(subtitles_path):
+            logger.info(f"Используется внешний файл субтитров: {subtitles_path}")
+            file = self.read_srt_file(subtitles_path)
+            subtitles = self.parse_srt(file)
+            subtitle_scenes = self.group_into_scenes(subtitles)
+        else:
+            embedded_srt = self.extract_embedded_subtitles(video_path)
+            if embedded_srt:
+                logger.info("Используются встроенные субтитры")
+                file = self.read_srt_file(subtitles_path)
+                subtitles = self.parse_srt(file)
+                subtitle_scenes = self.group_into_scenes(subtitles)
+            else:
+                logger.info("Субтитры не найдены, анализ будет без учета субтитров")
+        return subtitle_scenes
+
+    def extract_embedded_subtitles(self, video_path, output_srt_path='embedded_subtitles.srt'):
+        """Извлекает встроенные субтитры из видеофайла с помощью ffmpeg"""
+        try:
+            cmd = [
+                'ffmpeg',
+                '-i', video_path,
+                '-map', '0:s:0',
+                '-c:s', 'srt',
+                output_srt_path
+            ]
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            if os.path.exists(output_srt_path) and os.path.getsize(output_srt_path) > 0:
+                logger.info(f"Извлечены встроенные субтитры в {output_srt_path}")
+                return output_srt_path
+            else:
+                logger.info("Не удалось извлечь встроенные субтитры")
+        except subprocess.CalledProcessError as e:
+            logger.info(f"Не удалось извлечь встроенные субтитры: {e}")
+        except Exception as e:
+            logger.info(f"Ошибка при извлечении субтитров: {e}")
+        return None

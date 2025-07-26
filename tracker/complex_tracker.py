@@ -126,6 +126,9 @@ class ComplexVideoProcessor(BaseVideoProcessor):
         max_duration = 600.0 # максимальная длительность сцены в секундах
         merged_scenes = None
         video_scenes = self.detect_video_scenes(video_path)
+        #Обработка субтитров
+        subtitles_path = video_path[:-4] + '.srt'
+        subtitles_scenes = self.analyze_subtitles(subtitles_path, video_path)
         logger.info(f"Обнаружено {len(video_scenes)} сцен на основе видео контента:")
         for i, (start, end) in enumerate(video_scenes):
             logger.info(f"Сцена {i+1}: {start:.2f} - {end:.2f} сек")
@@ -138,13 +141,13 @@ class ComplexVideoProcessor(BaseVideoProcessor):
                 logger.info(f"Сцена {i+1}: {start:.2f} - {end:.2f} сек")
             # Объединяем сцены с новыми параметрами
             merged_scenes = self.merge_scenes(video_scenes, audio_scenes,
-                                         video_weight=video_weight,
-                                         audio_weight=audio_weight,
-                                         min_scene_duration=min_duration,
-                                         max_scene_duration=max_duration)
+                                              subtitle_scenes = subtitles_scenes,
+                                         min_scene_duration=min_duration)
             logger.info(f"Обнаружено {len(merged_scenes)} сцен после улучшенного объединения:")
             for i, (start, end) in enumerate(merged_scenes):
                 logger.info(f"Сцена {i+1}: {start:.2f} - {end:.2f} сек (длительность: {end-start:.2f} сек)")
+
+
 
         #Сохраняем шоты
         shorts_path = output_path + '/shorts'
