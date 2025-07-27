@@ -491,11 +491,15 @@ class OptimizedVideoProcessor(BaseVideoProcessor):
         #Обработка субтитров
         subtitles_path = video_path[:-4] + '.srt'
         subtitles_scenes = self.analyze_subtitles(subtitles_path, video_path)
-        logger.info(f"Обнаружено {len(subtitles_scenes)} сцен на основе субтитров:")
-        for i, scene in enumerate(subtitles_scenes, 1):
-            duration = scene[-1].end - scene[0].start
-            num_dialogs = len(scene)
-            logger.info(f"Сцена {i} ({duration:.1f} сек, {num_dialogs} реплик)")
+        if subtitles_scenes != None:
+            logger.info(f"Обнаружено {len(subtitles_scenes)} сцен на основе субтитров:")
+            for i, scene in enumerate(subtitles_scenes, 1):
+                duration = scene[-1].end - scene[0].start
+                num_dialogs = len(scene)
+                logger.info(f"Сцена {i} ({duration:.1f} сек, {num_dialogs} реплик)")
+        else:
+            logger.info(f"Субтитры не обнаружены. Используем только видео и аудио.")
+
 
         while frame_count < total_frames:
             frame = self.clip.get_frame(frame_count/self.clip.fps)
