@@ -153,10 +153,12 @@ class BaseVideoProcessor:
             output_path = os.path.join(output_dir, f"{prefix}{i+1}.mp4")
 
             # Используем moviepy для вырезания сцены
-            if i == len(final_scenes) - 1:
-                clip = VideoFileClip(video_path).subclipped(scene[0] + 1/fps)
+            if i == len(final_scenes) - 1 and i>0:
+                clip = VideoFileClip(video_path).subclipped(scene[0] + 2/fps)
+            elif i == 0:
+                clip = VideoFileClip(video_path).subclipped(0, scene[1] - 1/3/fps)
             else:
-                clip = VideoFileClip(video_path).subclipped(scene[0] + 1/fps, scene[1] - 1/3/fps)
+                clip = VideoFileClip(video_path).subclipped(scene[0] + 2/fps, scene[1] - 1/3/fps)
             clip.write_videofile(output_path, codec='libx264', audio_codec='aac')
             clip.close()
             logger.info(f"Сохранена сцена {i+1} в {output_path}")
