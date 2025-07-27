@@ -185,7 +185,10 @@ class ComplexVideoProcessor(BaseVideoProcessor):
             os.makedirs(output_path + f'/shaped_shorts')
         logger.info(f"Обработка шотов, 1 проход...")
         for i, (start, end) in enumerate(video_scenes):
-            short_clip = self.clip.subclipped(start + 1/fps, end)
+            if i == len(video_scenes) - 1:
+                short_clip = self.clip.subclipped(start + 1/fps)
+            else:
+                short_clip = self.clip.subclipped(start + 1/fps, end)
             df = self.video_short_pretracker(short_clip, i)
             self.shapes_list.append(df)
         #Удаляем из локального датасета записи, с именами, которые опознаны менее, чем в 10 кадрах
@@ -194,7 +197,10 @@ class ComplexVideoProcessor(BaseVideoProcessor):
                 self.face_recognition.local_dataset = self.face_recognition.local_dataset[self.face_recognition.local_dataset['name'] != name]
         logger.info(f"Обработка шотов, 2 проход...")
         for i, (start, end) in enumerate(video_scenes):
-            short_clip = self.clip.subclipped(start + 1/fps, end)
+            if i == len(video_scenes) - 1:
+                short_clip = self.clip.subclipped(start + 1/fps)
+            else:
+                short_clip = self.clip.subclipped(start + 1/fps, end)
             self.video_short_tracker(short_clip, output_path + f'/shaped_shorts/input_debug_{i}.mp4', i)
         self.clip.close()
 

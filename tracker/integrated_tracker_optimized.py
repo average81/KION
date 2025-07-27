@@ -588,7 +588,10 @@ class OptimizedVideoProcessor(BaseVideoProcessor):
         if not os.path.exists(output_path + f'/shaped_shorts'):
             os.makedirs(output_path + f'/shaped_shorts')
         for i, (start, end) in enumerate(video_scenes):
-            short_clip = self.clip.subclipped(start, end)
+            if i == len(video_scenes) - 1:
+                short_clip = self.clip.subclipped(start)
+            else:
+                short_clip = self.clip.subclipped(start, end)
             self.video_short_tracker(short_clip, output_path + f'/shaped_shorts/input_debug_{i}.mp4', i)
 
 
