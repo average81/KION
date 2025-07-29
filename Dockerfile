@@ -19,6 +19,9 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-py39_23.11.0-1-Linux-x86
 
 ENV PATH="/opt/conda/bin:$PATH"
 
+# Добавляем системные пути для доступа к cmake и другим системным инструментам
+ENV PATH="/usr/bin:/usr/local/bin:$PATH"
+
 # Настройка conda
 RUN conda config --set channel_priority strict
 
@@ -32,17 +35,19 @@ WORKDIR /app
 # Сначала устанавливаем PyTorch CUDA версию
 RUN python -m pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 torchaudio==2.0.2+cu118 --index-url https://download.pytorch.org/whl/cu118
 
+# Устанавливаем numpy и pandas через conda для совместимости
+RUN conda install -c conda-forge numpy==1.26.4 pandas==2.0.3 -y
+
 COPY requirements.txt ./
 RUN python -m pip install -r requirements.txt
 
-# Устанавливаем dlib через conda-forge
-RUN conda install -c conda-forge dlib -y
+# Устанавливаем dlib через pip (как в рабочем Dockerfile.backup)
+RUN rm -f /usr/local/bin/cmake
+RUN ln -s /usr/bin/cmake /usr/local/bin/cmake
+RUN python -m pip install dlib
 
-# Устанавливаем spacy через conda-forge (conda сам выберет версию)
+# Устанавливаем spacy через conda-forge
 RUN conda install -c conda-forge spacy -y
-
-# Устанавливаем языковую модель для русского языка через spacy
-RUN python -m spacy download ru_core_news_md
 
 RUN python -m pip cache purge
 
@@ -74,6 +79,9 @@ COPY --from=builder /app /app
 ENV PATH="/opt/conda/bin:$PATH"
 # Создаем символическую ссылку python -> conda python
 RUN ln -sf /opt/conda/bin/python /usr/bin/python
+
+# Устанавливаем языковую модель для русского языка через spacy
+RUN python -m spacy download ru_core_news_md
 
 ENV PYTHON_CMD="python"
 CMD ["python", "shorts.py", "--help"]

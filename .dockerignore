@@ -1,0 +1,80 @@
+# Виртуальные окружения
+venv/
+env39/
+
+# Python кэш
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Видео файлы (большие, не нужны в образе)
+*.mkv
+*.mp4
+*.avi
+*.mov
+*.wmv
+
+# Изображения (не нужны в образе)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+img.png
+
+# IDE и редакторы
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Выходные данные (генерируются при работе)
+output/
+output_test/
+*.csv
+*.json
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.temp
+
+# Документация и заметки
+README_DOCKER.md
+*.md
+!README.md
+
+# Резервные файлы
+Dockerfile.backup
+*.backup
+
+# Специальные папки
+.gigaide/
+.specstory/
+.cursorindexingignore
+
+# Скрипты для Windows/Linux (не нужны в контейнере)
+*.bat
+*.sh
+help.bat
+help.sh
+run*.bat
+run*.sh
+run-update*.bat
+run-update*.sh
+
+# Jupyter notebooks (не нужны в продакшене)
+*.ipynb
+*.ipynb_checkpoints/
+
+# Docker файлы (кроме Dockerfile)
+docker-compose.yml
+.dockerignore
