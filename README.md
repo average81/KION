@@ -57,7 +57,30 @@ pip install -r requirements.txt.
 ```conda install conda-forge::spacy```  
 После этого нужно установить поддержку русского языка для этой библиотеки командой:
 ```python -m spacy download ru_core_news_md```
-#### Установка в докер
+## Установка в докер
+#### Необходимое ПО:
+
+**Docker Desktop** - основная платформа контейнеризации  
+**NVIDIA Container Toolkit** - расширение для работы с GPU (устанавливается отдельно)  
+**NVIDIA GPU драйверы** - драйверы видеокарты (устанавливаются отдельно)  
+**CUDA Toolkit** - библиотеки для работы с GPU (обычно идет с драйверами)  
+
+#### Создание образа
+Запустите Docker Desktop.
+В папке проекта в терминале выполните:  
+`docker build -t kion-app-cuda .` где:
+- `docker build` - команда для создания Docker образа
+- `-t kion-app-cuda` - задает имя (тег) образа
+- `.` - указывает на текущую папку с Dockerfile
+
+
+#### Запуск проекта в докер:
+`docker run --rm --gpus all -v "${PWD}:/app" kion-app-cuda python shorts.py --video in1.mp4 --output_dir output_test`
+- `python` - интерпретатор Python
+- `shorts.py` - основной скрипт приложения
+- `--video in1.mp4` - параметр с именем видеофайла
+- `--output_dir output_test` - параметр с папкой для сохранения результатов.  
+Более подробное описание по запуску проекта см ниже.
 
 
 ## Запуск проекта  
